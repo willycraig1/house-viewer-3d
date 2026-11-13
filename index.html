@@ -2308,12 +2308,14 @@ const SITE_EDITS = {
   R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
 };
-// Terrace "linear pavers" (William 2026-11-13): 1-1/2" joints every 3' out from the house (parallel to the kitchen west
-// wall `wall`); the lengthwise control joints stay.
-const TERRACE_PAVERS = { wall: 'W67', every: 3, joint: 1.5 / 12 };
+// Terrace "linear pavers" (William 2026-11-13): open 3" joints at 4' o.c. out from the house (parallel to the kitchen
+// west wall `wall`), cut the full depth of the slab (the terrace is built as separate strips); the lengthwise control
+// joints stay.
+const TERRACE_PAVERS = { wall: 'W67', every: 4, joint: 3 / 12 };
 const LANDSCAPE = {
   slab: 0.15, flat: 0.05, mulch: 0.07, foliage: 1.4, shrubFactor: 1.3,
-  planterWall: 1.5, lanaiPlanterTop: 0, terraceTop: 0, curbTop: 0,   // terrace + play-zone curb at the house floor (William 2026-11-13)   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
+  planterWall: 1.5, lanaiPlanterTop: 0, terraceTop: 0, curbTop: 0,   // terrace + play-zone curb at the house floor (William 2026-11-13)
+  playBelowCurb: 2 / 12,   // play-zone surface 2" below the curb; what stands in it sits on that surface (William 2026-11-13)   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
   curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
   fence: 6 + 8 / 12,   // all fences + gates 6'-8" above the ground (William 2026-11-13; was privacy 6', perimeter 4', gates 5'-6")
   teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
@@ -2354,7 +2356,11 @@ const lsPoolMat = new THREE.LineDashedMaterial({ color: COLORS.pool, dashSize: 2
 function buildLandscape(D, add, capped, cut) {
   const items = D.landscape.filter(it => !SITE_EDITS[it.id]?.skip).map(it => SITE_EDITS[it.id] ? { ...it, ...SITE_EDITS[it.id] } : it), by = {};
   for (const it of items) by[it.id] = it;
-  const LS = LANDSCAPE, gC = poly => { const c = centroid(clean(poly)); return groundAt(c[0], c[1]); };
+  const LS = LANDSCAPE;
+  // the play zone's surface: level, 2" below the curb; anything standing in it sits on it (gAt)
+  const playP = (items.find(it => it.kind === 'area' && it.name === 'Play zone') || {}).poly, playTop = LS.curbTop - LS.playBelowCurb;
+  const gAt = (x, y) => playP && inside([x, y], playP) ? playTop : groundAt(x, y);
+  const gC = poly => { const c = centroid(clean(poly)); return gAt(c[0], c[1]); };
   const surf = { concrete: mat('concrete'), deck: mat('deckLs'), bed: mat('mulch'), planting: mat('foliage', { flatShading: true }),
                  gravel: mat('gravelLs'), pebbles: mat('shell'), turf: mat('turf'), sod: mat('grass') };
   const box = (poly, z0, z1, m, holes) => { const [a, b] = capped(z0, z1); if (b > a) add(prism(poly, a, b, m, { holes: holes || [] })); };
@@ -2381,43 +2387,45 @@ function buildLandscape(D, add, capped, cut) {
       if (inside([x, y], P) || edgeDist([x, y], P) < 0.6) { const g = groundAt(x, y); terrTop = Math.max(terrTop, g + LS.slab); terrLow = Math.min(terrLow, g); }
   }
   terrTop = Math.max(terrTop, LS.terraceTop);
-  { // paver joints: lines parallel to the wall, every 3' out from it, clipped to each slab piece, as 1-1/2" dark strips
+  // The terrace as strips between open joints (TERRACE_PAVERS): each slab piece clipped to the band between two joints
+  const terrStrips = [];
+  {
     const W = D.walls.find(w => w.id === TERRACE_PAVERS.wall);
-    if (W && terr.length && terrTop < cut) {
-      const L = Math.hypot(W.b[0] - W.a[0], W.b[1] - W.a[1]), ux = (W.b[0] - W.a[0]) / L, uy = (W.b[1] - W.a[1]) / L;
-      const allPts = terr.flat(), off = p => (p[0] - W.a[0]) * -uy + (p[1] - W.a[1]) * ux;   // + = to the wall's left
-      const side = Math.sign(allPts.reduce((t, p) => t + off(p), 0)) || 1, far = Math.max(...allPts.map(p => side * off(p)));
-      const hw = TERRACE_PAVERS.joint / 2, jm = mat(0x77736c);
-      for (let t = TERRACE_PAVERS.every; t < far; t += TERRACE_PAVERS.every) for (const P of terr) {
-        const o = [W.a[0] - uy * side * t, W.a[1] + ux * side * t], hits = [];
-        for (let i = 0; i < P.length; i++) {
-          const a = P[i], b = P[(i + 1) % P.length], ex = b[0] - a[0], ey = b[1] - a[1], den = ux * ey - uy * ex; if (Math.abs(den) < 1e-9) continue;
-          const k = ((a[0] - o[0]) * ey - (a[1] - o[1]) * ex) / den, m = ((a[0] - o[0]) * uy - (a[1] - o[1]) * ux) / den;
-          if (m >= 0 && m <= 1) hits.push(k);
-        }
-        hits.sort((p, q) => p - q);
-        for (let i = 0; i + 1 < hits.length; i += 2) {
-          const p = [o[0] + ux * hits[i], o[1] + uy * hits[i]], q = [o[0] + ux * hits[i + 1], o[1] + uy * hits[i + 1]], nx = -uy * hw, ny = ux * hw;
-          add(prism([[p[0] + nx, p[1] + ny], [q[0] + nx, q[1] + ny], [q[0] - nx, q[1] - ny], [p[0] - nx, p[1] - ny]], terrTop - 0.01, terrTop + 0.004, jm, { shadow: false }));
+    if (W && terr.length) {
+      const L = Math.hypot(W.b[0] - W.a[0], W.b[1] - W.a[1]), u = [(W.b[0] - W.a[0]) / L, (W.b[1] - W.a[1]) / L];
+      const allPts = terr.flat(), offL = p => (p[0] - W.a[0]) * -u[1] + (p[1] - W.a[1]) * u[0];
+      const side = Math.sign(allPts.reduce((t, p) => t + offL(p), 0)) || 1, n = [-u[1] * side, u[0] * side];
+      const toTS = p => [(p[0] - W.a[0]) * n[0] + (p[1] - W.a[1]) * n[1], (p[0] - W.a[0]) * u[0] + (p[1] - W.a[1]) * u[1]];
+      const toXY = ([t, sv]) => [W.a[0] + n[0] * t + u[0] * sv, W.a[1] + n[1] * t + u[1] * sv];
+      const far = Math.max(...allPts.map(p => toTS(p)[0])), E = TERRACE_PAVERS.every, hj = TERRACE_PAVERS.joint / 2;
+      for (const P of terr) {
+        const Q = P.map(toTS);
+        for (let k = 0; k * E < far; k++) {
+          const piece = clipU(Q, k ? k * E + hj : -Infinity, (k + 1) * E - hj);
+          if (piece.length >= 3 && Math.abs(area(piece)) > 0.01) terrStrips.push(piece.map(toXY));
         }
       }
-    }
+    } else terrStrips.push(...terr);
   }
   const onTerrace = p => terr.some(P => inside(p, P) || edgeDist(p, P) < 0.05);
   const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
+  for (const P of terrStrips) box(P, terrLow - 0.3, terrTop, surf.concrete);
+  if (playP) { let lo = Infinity; for (const p of clean(playP)) lo = Math.min(lo, groundAt(p[0], p[1]));
+    box(playP, Math.min(lo, playTop) - 0.3, playTop, surf.turf); }
   for (const it of items) {
     const nm = it.name || '';
     if (it.kind === 'area') {
       const P = it.poly, H = it.holes, g0 = gC(P);
       if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, wallTop(it, g0), mat('wall'), H); continue; }
-      if (TERRACE.test(nm)) { box(P, terrLow - 0.3, terrTop, surf.concrete, H); continue; }
+      if (TERRACE.test(nm) || it.poly === playP) continue;   // drawn above (terrace strips, play surface)
       if (nm === 'Play zone curb') { box(P, Math.min(g0, LS.curbTop) - 0.3, LS.curbTop, mat('concrete'), H); continue; }
       if (it.mat === 'deck') {
-        let top = g0 + LS.deckLow;
+        const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
+        let top = (onTerr ? terrTop : g0) + LS.deckLow;
         if (it === upper) top += LS.deckStep;
-        else if (nm === 'Built-in bench' && upper) top = gC(upper.poly) + LS.deckLow + LS.deckStep + LS.bench;
+        else if (nm === 'Built-in bench' && upper) top = terrTop + LS.deckLow + LS.deckStep + LS.bench;
         else if (nm === 'Bridge') top = g0 + LS.bridge;
         else if (/beam/i.test(nm)) top = g0 + LS.beam6x6;
         else if (/log/i.test(nm)) top = g0 + LS.log;
@@ -2436,7 +2444,7 @@ function buildLandscape(D, add, capped, cut) {
     }
     if (it.kind === 'rock') { const g0 = gC(it.poly); box(it.poly, g0 - 0.2, g0 + LS.rock, mat('rock', { flatShading: true })); continue; }
     if (it.kind === 'circle') {
-      const g0 = groundAt(it.c[0], it.c[1]), ring = [];
+      const g0 = gAt(it.c[0], it.c[1]), ring = [];
       for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ring.push([it.c[0] + it.r * Math.cos(a), it.c[1] + it.r * Math.sin(a)]); }
       if (it.mat === 'planting' || it.mat === 'bed') { add(drapeArea(ring, null, LS.mulch + 0.01, surf[it.mat])); continue; }
       if (/urn/i.test(nm) && extras('planter').some(u => /urn/i.test(u.type))) continue;   // the IFC's urn is drawn instead
@@ -2448,7 +2456,7 @@ function buildLandscape(D, add, capped, cut) {
     }
     if (it.kind === 'plant') {
       if (/keep/i.test(nm) && it.sym === 'tree') continue;           // existing trees come from the survey
-      const grp = new THREE.Group(); grp.position.set(it.c[0], it.c[1], groundAt(it.c[0], it.c[1]));
+      const grp = new THREE.Group(); grp.position.set(it.c[0], it.c[1], gAt(it.c[0], it.c[1]));
       if (it.sym === 'shrub') {
         const s = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), mat('foliage', { flatShading: true }));
         s.scale.set(it.r, it.r, it.r * LS.shrubFactor); s.position.z = it.r * LS.shrubFactor * 0.8; s.castShadow = true; grp.add(s);
@@ -2466,10 +2474,10 @@ function buildLandscape(D, add, capped, cut) {
       const pts = it.pts;
       if (nm === 'Tee-pee leg') {
         const [ctr, foot] = pts;
-        add(member([foot[0], foot[1], groundAt(foot[0], foot[1])], [ctr[0], ctr[1], Math.min(groundAt(ctr[0], ctr[1]) + LS.teepee, cut)], 0.29, mat('wood'))); continue;
+        add(member([foot[0], foot[1], gAt(foot[0], foot[1])], [ctr[0], ctr[1], Math.min(gAt(ctr[0], ctr[1]) + LS.teepee, cut)], 0.29, mat('wood'))); continue;
       }
       if (nm === 'Swings') {
-        const a = pts[0], b = pts.at(-1), g0 = groundAt(a[0], a[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const a = pts[0], b = pts.at(-1), g0 = gAt(a[0], a[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
         if (g0 + LS.swingBeam < cut) add(member([a[0], a[1], g0 + LS.swingBeam], [b[0], b[1], g0 + LS.swingBeam], 0.45, mat('wood')));
         add(member([m[0], m[1], Math.min(g0 + LS.swingBeam, cut)], [m[0], m[1], g0 + 1.6], 0.05, mat('iron')));
         box([[m[0] - 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] + 0.3], [m[0] - 0.8, m[1] + 0.3]], g0 + 1.5, g0 + 1.6, mat('iron'));
@@ -2479,7 +2487,7 @@ function buildLandscape(D, add, capped, cut) {
         const h = LS.fence;   // every fence and gate the same height (William 2026-11-13)
         for (let i = 0; i + 1 < pts.length; i++)   // front + side yards: FENCE_MAT, 6'-8"; rear yard: 48" wire (WIRE_FENCE)
           for (const [a, b, wire] of fencePieces(it, pts[i], pts[i + 1])) {
-            const z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
+            const z0 = Math.min(gAt(a[0], a[1]), gAt(b[0], b[1]));
             if (wire) { if (wireTop < cut) wireRun(a, b, wireTop, add, it.st === 'gate'); }
             else fenceRun(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, add);
           }
