@@ -521,12 +521,13 @@ function fenceRun(a, b, z0, z1, thick, add) {
     add(prism([[c[0] - r, c[1] - r], [c[0] + r, c[1] - r], [c[0] + r, c[1] + r], [c[0] - r, c[1] + r]], z0, z1 + 0.04, mat(FENCE.postColor)));
   }
 }
-// Rear yard fence (William 2026-11-13): past the neighbours' fencing the perimeter is a 48" 2x frame fence, posts at
+// Rear yard fence (William 2026-11-13): past the neighbours' fencing the perimeter is a 42" (was 48"; the minimum for a
+// future pool enclosure) 2x frame fence, posts at
 // 8' o.c., 4" welded wire mesh; the west gate (site plan) is built the same way. Front + side yards stay FENCE_MAT.
 // `north` / `south`: the x where a side fence turns to wire (west of it is wire). North = the end of the neighbour's
 // 6' fence on the north line (survey); south = the existing cross fence at x ~36 (no neighbour fence surveyed there;
 // assumed, confirm with William). `rear` = runs that are wire for their whole length.
-const WIRE_FENCE = { height: 4, spacing: 8, post: 3.5 / 12, rail: [3.5 / 12, 1.5 / 12], bottom: 0.3, mesh: 4 / 12,
+const WIRE_FENCE = { height: 3.5, spacing: 8, post: 3.5 / 12, rail: [3.5 / 12, 1.5 / 12], bottom: 0.3, mesh: 4 / 12,
   north: 8.3, south: 36.0, rear: /^(Perimeter fence \(rear\)|Mower gate)$/ };
 const WIRE_MAT = (() => {
   const t = canvasTex(64, 64, (g, w, h) => {
@@ -942,12 +943,49 @@ const opts = { roof: true, furn: true, labels: true, trees: true, terrain: true,
 
 // ----- Survey ground: triangulated surface (model/survey.json, z relative to the main floor)
 const FAR_FIELD = -4.6;   // flat lawn beyond the surveyed area, just below the lowest shot
+// Proposed grade (William 2026-11-13): the back yard, from just west of the house out to the property lines, regraded a
+// lot flatter: the survey's ground pulled toward one level (`level`), keeping `keep` of its old relief. Full effect west
+// of x0, fading to the survey by x1 (west of the lanai planter); outside the lot it fades back to the survey within
+// `outside` ft (the neighbours' ground). Triangles there are split to `maxEdge` so the new grade shows. Assumed values.
+const REGRADE = { x0: 0, x1: 8, level: -1.0, keep: 0.2, outside: 4, maxEdge: 3 };
+let GROUND = null;   // the ground in use: survey TIN with the regrade applied ({ v, tri, surface, hull }, + a lookup grid)
+function buildGround() {
+  const R = REGRADE, S = SURVEY.ground, lot = DATA.site?.lot;
+  const w = (x, y) => {
+    let a = x <= R.x0 ? 1 : x >= R.x1 ? 0 : (R.x1 - x) / (R.x1 - R.x0);
+    if (a > 0 && lot && !inside([x, y], lot)) a *= Math.max(0, 1 - edgeDist([x, y], lot) / R.outside);
+    return a;
+  };
+  const zf = ([x, y, z]) => { const k = w(x, y); return [x, y, k ? z + k * (R.level + R.keep * (z - R.level) - z) : z]; };
+  const v = S.v.map(zf), tri = [], surface = [];
+  const near = t => Math.min(...t.map(p => p[0])) < R.x1;
+  const split = (t, sf) => {
+    const L = [0, 1, 2].map(i => Math.hypot(t[(i + 1) % 3][0] - t[i][0], t[(i + 1) % 3][1] - t[i][1])), i = L.indexOf(Math.max(...L));
+    if (L[i] <= R.maxEdge || !near(t)) { const n = v.length; v.push(...t.map(zf)); tri.push([n, n + 1, n + 2]); surface.push(sf); return; }
+    const a = t[i], b = t[(i + 1) % 3], c = t[(i + 2) % 3], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    split([a, m, c], sf); split([m, b, c], sf);
+  };
+  S.tri.forEach(([i, j, k], n) => {
+    const t = [S.v[i], S.v[j], S.v[k]];
+    if (near(t)) split(t, S.surface[n]); else { tri.push([i, j, k]); surface.push(S.surface[n]); }
+  });
+  const grid = new Map(), C = 10, key = (gx, gy) => gx * 100003 + gy;   // 10' buckets for groundAt
+  tri.forEach((t, n) => {
+    const xs = t.map(i => v[i][0]), ys = t.map(i => v[i][1]);
+    for (let gx = Math.floor(Math.min(...xs) / C); gx <= Math.floor(Math.max(...xs) / C); gx++)
+      for (let gy = Math.floor(Math.min(...ys) / C); gy <= Math.floor(Math.max(...ys) / C); gy++) {
+        const k = key(gx, gy); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(n);
+      }
+  });
+  GROUND = { v, tri, surface, hull: S.hull, cell: (x, y) => grid.get(key(Math.floor(x / C), Math.floor(y / C))) || [] };
+}
 function groundAt(x, y) {
   if (!SURVEY || !opts.terrain) return HEIGHTS.grade;
-  const { v, tri } = SURVEY.ground;
-  for (const [i, j, k] of tri) {
-    const a = v[i], b = v[j], c = v[k];
-    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+  if (!GROUND) buildGround();
+  const { v, tri } = GROUND;
+  for (const n of GROUND.cell(x, y)) {
+    const [i, j, k] = tri[n], a = v[i], b = v[j], c = v[k];
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]); if (Math.abs(d) < 1e-12) continue;
     const l1 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
     const l2 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
     const l3 = 1 - l1 - l2;
@@ -956,9 +994,15 @@ function groundAt(x, y) {
   return HEIGHTS.grade;
 }
 function terrainMesh() {
-  const { v, tri, surface, hull } = SURVEY.ground, pos = [], col = [], c = new THREE.Color();
+  if (!GROUND) buildGround();
+  const { v, tri, surface, hull } = GROUND, pos = [], col = [], c = new THREE.Color();
   const put = (p, hex) => { pos.push(p[0], p[1], p[2]); c.setHex(hex); col.push(c.r, c.g, c.b); };
-  tri.forEach(([i, j, k], n) => { const hex = COLORS[surface[n] === 'lawn' ? 'grass' : surface[n]]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
+  // With the site plan on, the survey's old back-yard concrete (the lanai slab edge strip, outside the rooms) is lawn:
+  // the plan replaces that paving (it showed as a sliver past the lanai planter).
+  const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && (() => {
+    const c = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3]; return c[0] < 25 && !roomAt(c); })();
+  tri.forEach(([i, j, k], n) => { const sf = oldPaving([v[i], v[j], v[k]], surface[n]) ? 'lawn' : surface[n];
+    const hex = COLORS[sf === 'lawn' ? 'grass' : sf]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
   for (let e = 0; e < hull.length; e += 2) {   // skirt from the surveyed edge down to the far-field lawn
     const a = v[hull[e]], b = v[hull[e + 1]], A = [a[0], a[1], FAR_FIELD], B = [b[0], b[1], FAR_FIELD];
     for (const p of [a, b, B, a, B, A]) put(p, COLORS.soil);
@@ -972,8 +1016,9 @@ function terrainMesh() {
   return m;
 }
 // Contours every 6" of NAVD88 elevation; whole feet darker and labeled once.
-function contourLines() {
-  const { v, tri } = SURVEY.ground, FF = 10.91, out = [], segs = {};
+function contourLines() {   // of the ground in use (the proposed regrade in the back yard)
+  if (!GROUND) buildGround();
+  const { v, tri } = GROUND, FF = 10.91, out = [], segs = {};
   const zs = v.map(p => p[2] + FF), lo = Math.ceil(Math.min(...zs) * 2) / 2, hi = Math.max(...zs);
   for (let L = lo; L <= hi; L += 0.5) {
     const z = L - FF, s = [];
@@ -2300,13 +2345,24 @@ function buildLandscape(D, add, capped, cut) {
   const raised = new Set(items.filter(it => it.kind === 'area' && it.mat === 'bed' && /planter/i.test(it.name || '') && !/pot/i.test(it.name || '')
     && wallPolys.some(W => clean(it.poly).every(p => Math.hypot(...[0, 1].map(k => p[k] - centroid(W)[k])) < 60))).map(it => it.id));
   const upper = items.find(x => /overlapping deck/i.test(x.name || ''));
-  // the wire fence's one top level: 48" over the highest ground along any of its runs (William 2026-11-13)
+  // the wire fence's one top level: 42" over the highest ground along any of its runs (William 2026-11-13)
   let wireTop = -Infinity;
   for (const it of items) if (it.st === 'fence' || it.st === 'gate') for (let i = 0; i + 1 < (it.pts || []).length; i++)
     for (const [a, b, wire] of fencePieces(it, it.pts[i], it.pts[i + 1])) if (wire) {
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 2));
       for (let k = 0; k <= n; k++) wireTop = Math.max(wireTop, groundAt(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) + WIRE_FENCE.height);
     }
+  // The kitchen landing + terrace out to the play zone: one level slab (William 2026-11-13), its top 2" over the highest
+  // ground under it, its edge down to the ground.
+  const TERRACE = /^(Concrete landing at the kitchen doors|Concrete terrace)$/;
+  const terr = items.filter(it => it.kind === 'area' && TERRACE.test(it.name || '')).map(it => clean(it.poly));
+  let terrTop = -Infinity, terrLow = Infinity;
+  for (const P of terr) {
+    const xs = P.map(p => p[0]), ys = P.map(p => p[1]);
+    for (let x = Math.min(...xs); x <= Math.max(...xs) + 1e-6; x += 1) for (let y = Math.min(...ys); y <= Math.max(...ys) + 1e-6; y += 1)
+      if (inside([x, y], P) || edgeDist([x, y], P) < 0.6) { const g = groundAt(x, y); terrTop = Math.max(terrTop, g + LS.slab); terrLow = Math.min(terrLow, g); }
+  }
+  const onTerrace = p => terr.some(P => inside(p, P) || edgeDist(p, P) < 0.05);
   const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
@@ -2315,6 +2371,7 @@ function buildLandscape(D, add, capped, cut) {
     if (it.kind === 'area') {
       const P = it.poly, H = it.holes, g0 = gC(P);
       if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, wallTop(it, g0), mat('wall'), H); continue; }
+      if (TERRACE.test(nm)) { box(P, terrLow - 0.3, terrTop, surf.concrete, H); continue; }
       if (nm === 'Play zone curb') { box(P, g0 - 0.3, g0 + LS.curb, mat('concrete'), H); continue; }
       if (it.mat === 'deck') {
         let top = g0 + LS.deckLow;
@@ -2387,7 +2444,11 @@ function buildLandscape(D, add, capped, cut) {
           }
         continue;
       }
-      if (it.st === 'joint' && nm === 'Slab joint') { add(line3(dens(pts), LS.slab + 0.02, lsJointMat)); continue; }
+      if (it.st === 'joint' && nm === 'Slab joint') {
+        if (pts.every(onTerrace)) add(line3(pts.map(p => [p[0], p[1], terrTop]), 0.02, lsJointMat));   // on the level terrace
+        else add(line3(dens(pts), LS.slab + 0.02, lsJointMat));
+        continue;
+      }
       if (/^Access lane/.test(nm)) { add(line3(dens(pts), 0.12, lsLaneMat)); continue; }
       if (it.st === 'future') { add(line3(dens(pts), 0.2, lsPoolMat)); continue; }
     }
