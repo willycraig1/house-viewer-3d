@@ -16,7 +16,11 @@
   #panel { position: fixed; top: 12px; left: 12px; width: 260px; max-height: calc(100% - 24px); overflow-y: auto;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
     box-shadow: 0 2px 12px rgba(0,0,0,.08); box-sizing: border-box; }
-  #panel h1 { font-size: 15px; margin: 0 0 2px; }
+  #panel h1 { font-size: 15px; margin: 0 0 2px; padding-right: 34px; }
+  #collapse { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 6px; font-size: 15px; line-height: 1; }
+  #panel.collapsed { width: auto; }
+  #panel.collapsed > *:not(h1):not(#collapse) { display: none; }
+  #panel.collapsed h1 { margin: 0; }
   #panel .sub { color: var(--muted); margin-bottom: 10px; }
   .row { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
   button { flex: 1; padding: 6px 8px; border: 1px solid var(--line); background: #fff; border-radius: 6px;
@@ -58,6 +62,7 @@
 <div id="view"></div>
 <div id="msg">Loading model…</div>
 <div id="panel">
+  <button id="collapse" title="Hide / show the panel" aria-label="Hide or show the panel" aria-expanded="true">&#x2212;</button>
   <h1>House renovation 3D</h1>
   <div class="sub" id="scheme">Proposed scheme</div>
   <div class="row">
@@ -999,8 +1004,7 @@ function terrainMesh() {
   const put = (p, hex) => { pos.push(p[0], p[1], p[2]); c.setHex(hex); col.push(c.r, c.g, c.b); };
   // With the site plan on, the survey's old back-yard concrete (the lanai slab edge strip, outside the rooms) is lawn:
   // the plan replaces that paving (it showed as a sliver past the lanai planter).
-  const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && (() => {
-    const c = [(t[0][0] + t[1][0] + t[2][0]) / 3, (t[0][1] + t[1][1] + t[2][1]) / 3]; return c[0] < 25 && !roomAt(c); })();
+  const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && t.some(p => p[0] < 25);   // floors cover what's under the house
   tri.forEach(([i, j, k], n) => { const sf = oldPaving([v[i], v[j], v[k]], surface[n]) ? 'lawn' : surface[n];
     const hex = COLORS[sf === 'lawn' ? 'grass' : sf]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
   for (let e = 0; e < hull.length; e += 2) {   // skirt from the surveyed edge down to the far-field lawn
@@ -2294,9 +2298,22 @@ function build() {
 // Site plan (house.json `landscape`: the floor-plan project's revised site plan, plan feet). Flat surfaces are draped on
 // the survey ground; raised planters, decks, fences, the Bijou tee-pees and plants are built up from it. Heights are
 // assumptions (LANDSCAPE); see docs/DECISIONS.md.
+// Temporary site plan edits (William 2026-11-13), until the floor-plan project's site_rev.json carries them
+// (docs/EXPORT_REQUESTS.md 28): the lanai planter's north return wall is gone (its west leg stops on the landing's edge
+// and the bed runs to the landing, which now holds the soil); the 6'-8" terrace cross joints give way to the 3' paver
+// joints (TERRACE_PAVERS).
+const SITE_EDITS = {
+  R94: { poly: [[16.91, 48.18], [17.55, 47.98], [9.83, 23.67], [18.05, 21.06], [19.16, 24.57], [17.85, 20.43], [8.99, 23.24]] },
+  R92: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
+  R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
+  R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
+};
+// Terrace "linear pavers" (William 2026-11-13): 1-1/2" joints every 3' out from the house (parallel to the kitchen west
+// wall `wall`); the lengthwise control joints stay.
+const TERRACE_PAVERS = { wall: 'W67', every: 3, joint: 1.5 / 12 };
 const LANDSCAPE = {
   slab: 0.15, flat: 0.05, mulch: 0.07, foliage: 1.4, shrubFactor: 1.3,
-  planterWall: 1.5, lanaiPlanterTop: 0,   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
+  planterWall: 1.5, lanaiPlanterTop: 0, terraceTop: 0, curbTop: 0,   // terrace + play-zone curb at the house floor (William 2026-11-13)   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
   curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
   fence: 6 + 8 / 12,   // all fences + gates 6'-8" above the ground (William 2026-11-13; was privacy 6', perimeter 4', gates 5'-6")
   teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
@@ -2335,7 +2352,8 @@ const lsJointMat = new THREE.LineBasicMaterial({ color: 0x6f6b64 });
 const lsLaneMat = new THREE.LineDashedMaterial({ color: 0xd9822b, dashSize: 1.5, gapSize: 1 });
 const lsPoolMat = new THREE.LineDashedMaterial({ color: COLORS.pool, dashSize: 2, gapSize: 1.2 });
 function buildLandscape(D, add, capped, cut) {
-  const items = D.landscape, by = {}; for (const it of items) by[it.id] = it;
+  const items = D.landscape.filter(it => !SITE_EDITS[it.id]?.skip).map(it => SITE_EDITS[it.id] ? { ...it, ...SITE_EDITS[it.id] } : it), by = {};
+  for (const it of items) by[it.id] = it;
   const LS = LANDSCAPE, gC = poly => { const c = centroid(clean(poly)); return groundAt(c[0], c[1]); };
   const surf = { concrete: mat('concrete'), deck: mat('deckLs'), bed: mat('mulch'), planting: mat('foliage', { flatShading: true }),
                  gravel: mat('gravelLs'), pebbles: mat('shell'), turf: mat('turf'), sod: mat('grass') };
@@ -2352,8 +2370,8 @@ function buildLandscape(D, add, capped, cut) {
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 2));
       for (let k = 0; k <= n; k++) wireTop = Math.max(wireTop, groundAt(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) + WIRE_FENCE.height);
     }
-  // The kitchen landing + terrace out to the play zone: one level slab (William 2026-11-13), its top 2" over the highest
-  // ground under it, its edge down to the ground.
+  // The kitchen landing + terrace out to the play zone: one level slab at the house floor (LS.terraceTop, William
+  // 2026-11-13), its edge down to the ground.
   const TERRACE = /^(Concrete landing at the kitchen doors|Concrete terrace)$/;
   const terr = items.filter(it => it.kind === 'area' && TERRACE.test(it.name || '')).map(it => clean(it.poly));
   let terrTop = -Infinity, terrLow = Infinity;
@@ -2361,6 +2379,29 @@ function buildLandscape(D, add, capped, cut) {
     const xs = P.map(p => p[0]), ys = P.map(p => p[1]);
     for (let x = Math.min(...xs); x <= Math.max(...xs) + 1e-6; x += 1) for (let y = Math.min(...ys); y <= Math.max(...ys) + 1e-6; y += 1)
       if (inside([x, y], P) || edgeDist([x, y], P) < 0.6) { const g = groundAt(x, y); terrTop = Math.max(terrTop, g + LS.slab); terrLow = Math.min(terrLow, g); }
+  }
+  terrTop = Math.max(terrTop, LS.terraceTop);
+  { // paver joints: lines parallel to the wall, every 3' out from it, clipped to each slab piece, as 1-1/2" dark strips
+    const W = D.walls.find(w => w.id === TERRACE_PAVERS.wall);
+    if (W && terr.length && terrTop < cut) {
+      const L = Math.hypot(W.b[0] - W.a[0], W.b[1] - W.a[1]), ux = (W.b[0] - W.a[0]) / L, uy = (W.b[1] - W.a[1]) / L;
+      const allPts = terr.flat(), off = p => (p[0] - W.a[0]) * -uy + (p[1] - W.a[1]) * ux;   // + = to the wall's left
+      const side = Math.sign(allPts.reduce((t, p) => t + off(p), 0)) || 1, far = Math.max(...allPts.map(p => side * off(p)));
+      const hw = TERRACE_PAVERS.joint / 2, jm = mat(0x77736c);
+      for (let t = TERRACE_PAVERS.every; t < far; t += TERRACE_PAVERS.every) for (const P of terr) {
+        const o = [W.a[0] - uy * side * t, W.a[1] + ux * side * t], hits = [];
+        for (let i = 0; i < P.length; i++) {
+          const a = P[i], b = P[(i + 1) % P.length], ex = b[0] - a[0], ey = b[1] - a[1], den = ux * ey - uy * ex; if (Math.abs(den) < 1e-9) continue;
+          const k = ((a[0] - o[0]) * ey - (a[1] - o[1]) * ex) / den, m = ((a[0] - o[0]) * uy - (a[1] - o[1]) * ux) / den;
+          if (m >= 0 && m <= 1) hits.push(k);
+        }
+        hits.sort((p, q) => p - q);
+        for (let i = 0; i + 1 < hits.length; i += 2) {
+          const p = [o[0] + ux * hits[i], o[1] + uy * hits[i]], q = [o[0] + ux * hits[i + 1], o[1] + uy * hits[i + 1]], nx = -uy * hw, ny = ux * hw;
+          add(prism([[p[0] + nx, p[1] + ny], [q[0] + nx, q[1] + ny], [q[0] - nx, q[1] - ny], [p[0] - nx, p[1] - ny]], terrTop - 0.01, terrTop + 0.004, jm, { shadow: false }));
+        }
+      }
+    }
   }
   const onTerrace = p => terr.some(P => inside(p, P) || edgeDist(p, P) < 0.05);
   const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
@@ -2372,7 +2413,7 @@ function buildLandscape(D, add, capped, cut) {
       const P = it.poly, H = it.holes, g0 = gC(P);
       if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, wallTop(it, g0), mat('wall'), H); continue; }
       if (TERRACE.test(nm)) { box(P, terrLow - 0.3, terrTop, surf.concrete, H); continue; }
-      if (nm === 'Play zone curb') { box(P, g0 - 0.3, g0 + LS.curb, mat('concrete'), H); continue; }
+      if (nm === 'Play zone curb') { box(P, Math.min(g0, LS.curbTop) - 0.3, LS.curbTop, mat('concrete'), H); continue; }
       if (it.mat === 'deck') {
         let top = g0 + LS.deckLow;
         if (it === upper) top += LS.deckStep;
@@ -2491,6 +2532,15 @@ function setView(top) {
 const $ = id => document.getElementById(id);
 $('b3d').onclick = () => setView(false);
 $('btop').onclick = () => setView(true);
+// Panel collapse (William 2026-11-13: too big on mobile): remembered per browser; starts collapsed on narrow screens.
+function setCollapsed(c) {
+  $('panel').classList.toggle('collapsed', c);
+  $('collapse').innerHTML = c ? '&#x2630;' : '&#x2212;'; $('collapse').setAttribute('aria-expanded', String(!c));
+  try { localStorage.setItem('750m3d.panel', c ? 'collapsed' : 'open'); } catch (e) {}
+}
+$('collapse').onclick = () => setCollapsed(!$('panel').classList.contains('collapsed'));
+{ let saved = null; try { saved = localStorage.getItem('750m3d.panel'); } catch (e) {}
+  setCollapsed(saved ? saved === 'collapsed' : innerWidth < 600); }
 for (const k of ['roof', 'furn', 'labels', 'trees', 'terrain', 'contours', 'newwork', 'site', 'landscape', 'mep', 'fdn']) $(k).onchange = e => { opts[k] = e.target.checked; build(); };
 function setSeg(key, v) {
   opts[key] = v;
