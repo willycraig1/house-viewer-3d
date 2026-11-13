@@ -521,6 +521,47 @@ function fenceRun(a, b, z0, z1, thick, add) {
     add(prism([[c[0] - r, c[1] - r], [c[0] + r, c[1] - r], [c[0] + r, c[1] + r], [c[0] - r, c[1] + r]], z0, z1 + 0.04, mat(FENCE.postColor)));
   }
 }
+// Rear yard fence (William 2026-11-13): past the neighbours' fencing the perimeter is a 48" 2x frame fence, posts at
+// 8' o.c., 4" welded wire mesh; the west gate (site plan) is built the same way. Front + side yards stay FENCE_MAT.
+// `north` / `south`: the x where a side fence turns to wire (west of it is wire). North = the end of the neighbour's
+// 6' fence on the north line (survey); south = the existing cross fence at x ~36 (no neighbour fence surveyed there;
+// assumed, confirm with William). `rear` = runs that are wire for their whole length.
+const WIRE_FENCE = { height: 4, spacing: 8, post: 3.5 / 12, rail: [3.5 / 12, 1.5 / 12], bottom: 0.3, mesh: 4 / 12,
+  north: 8.3, south: 36.0, rear: /^(Perimeter fence \(rear\)|Mower gate)$/ };
+const WIRE_MAT = (() => {
+  const t = canvasTex(64, 64, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.fillStyle = '#7d8185'; g.fillRect(0, 0, w, 3); g.fillRect(0, 0, 3, h);   // one 4" cell
+  }, WIRE_FENCE.mesh, WIRE_FENCE.mesh);
+  return new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6 });
+})();
+// A wire fence run (or gate) a -> b standing on z0 (ground): 4x4 posts at 8' o.c., 2x4 top and bottom rails (flat), mesh between.
+function wireRun(a, b, z0, add, gate = false) {
+  const F = WIRE_FENCE, L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 0.05) return;
+  const dx = (b[0] - a[0]) / L, dy = (b[1] - a[1]) / L, wood = mat(FENCE.postColor), top = z0 + F.height, bot = z0 + F.bottom;
+  const at = u => [a[0] + dx * u, a[1] + dy * u], r = F.post / 2;
+  const post = (u, z1, w = F.post) => { const c = at(u), h = w / 2; add(prism([[c[0] - h, c[1] - h], [c[0] + h, c[1] - h], [c[0] + h, c[1] + h], [c[0] - h, c[1] + h]], z0 - 0.3, z1, wood)); };
+  if (gate) {   // 2x frame: stiles, rails and a diagonal brace, mesh infill (hinge posts are the fence's own)
+    for (const u of [0.05, L - 0.05]) post(u, top, F.rail[1] * 1.5);
+    add(panel(at(0), at(L), top - F.rail[0], top, F.rail[1], wood)); add(panel(at(0), at(L), bot, bot + F.rail[0], F.rail[1], wood));
+    add(box3([...at(0.1), bot + F.rail[0]], [...at(L - 0.1), top - F.rail[0]], F.rail[1], F.rail[0], wood));
+  } else {
+    const n = Math.max(1, Math.ceil(L / F.spacing - 0.05));
+    for (let i = 0; i <= n; i++) post(L * i / n, top + 0.08);
+    add(panel(at(0), at(L), top - F.rail[1], top, F.rail[0], wood));   // top rail, laid flat
+    add(panel(at(0), at(L), bot - F.rail[1], bot, F.rail[0], wood));   // bottom rail
+  }
+  const m = panel(at(0), at(L), bot, top - F.rail[1], 0.01, WIRE_MAT);
+  if (m) { m.castShadow = false; add(wallUV(m, a[0], a[1], dx, dy)); }
+}
+// Which parts of a site-plan fence run are wire: [[a, b, wire]] pieces, split at the side's break x.
+function fencePieces(it, a, b) {
+  const F = WIRE_FENCE, nm = it.name || '';
+  if (F.rear.test(nm)) return [[a, b, true]];
+  const bx = /^Perimeter fence \(north\)/.test(nm) ? F.north : /^Perimeter fence \(south\)/.test(nm) ? F.south : null;
+  if (bx == null || (a[0] - bx) * (b[0] - bx) >= 0) return [[a, b, bx != null && Math.min(a[0], b[0]) < bx]];
+  const k = (bx - a[0]) / (b[0] - a[0]), m = [bx, a[1] + (b[1] - a[1]) * k];
+  return [[a, m, a[0] < bx], [m, b, b[0] < bx]];
+}
 const cladMat = {};
 function cladding(kind, highlight) {
   const k = kind + highlight;
@@ -2330,10 +2371,12 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') {
         const h = LS.fence;   // every fence and gate the same height (William 2026-11-13)
-        for (let i = 0; i + 1 < pts.length; i++) {   // perimeter, privacy, enclosure fences and gates: one finish (FENCE_MAT)
-          const a = pts[i], b = pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
-          fenceRun(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, add);
-        }
+        for (let i = 0; i + 1 < pts.length; i++)   // front + side yards: FENCE_MAT, 6'-8"; rear yard: 48" wire (WIRE_FENCE)
+          for (const [a, b, wire] of fencePieces(it, pts[i], pts[i + 1])) {
+            const z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
+            if (wire) { if (z0 < cut) wireRun(a, b, z0, add, it.st === 'gate'); }
+            else fenceRun(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, add);
+          }
         continue;
       }
       if (it.st === 'joint' && nm === 'Slab joint') { add(line3(dens(pts), LS.slab + 0.02, lsJointMat)); continue; }
