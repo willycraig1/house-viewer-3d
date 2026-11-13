@@ -59,7 +59,7 @@
 <div id="msg">Loading model…</div>
 <div id="panel">
   <h1>House renovation 3D</h1>
-  <div class="sub" id="scheme">Proposed: K2 + H10e</div>
+  <div class="sub" id="scheme">Proposed scheme</div>
   <div class="row">
     <button id="b3d" class="on">3D view</button>
     <button id="btop">Top view</button>
@@ -93,6 +93,8 @@
     <label><input type="checkbox" id="site" checked> Lot &amp; setback lines</label>
     <label><input type="checkbox" id="landscape" checked> Site plan (revised landscape)</label>
     <label><input type="checkbox" id="newwork"> Highlight new walls <span class="swatch"></span></label>
+    <label><input type="checkbox" id="mep"> Plumbing &amp; HVAC (existing)</label>
+    <label><input type="checkbox" id="fdn"> Foundations</label>
   </div>
 
   <div class="sec">
@@ -100,10 +102,6 @@
     <div>Exterior finish</div>
     <div class="seg" data-opt="wingFinish">
       <button data-v="lap" class="on">Lap siding (match)</button><button data-v="stucco">Smooth stucco</button>
-    </div>
-    <div>Roof (not in the roof plan yet)</div>
-    <div class="seg" data-opt="wingRoof">
-      <button data-v="hip" class="on">Hip</button><button data-v="flat">Flat</button>
     </div>
   </div>
 
@@ -114,7 +112,7 @@
   <div class="note">Drag to orbit, right-drag to pan, scroll to zoom, arrow keys to move (Shift: faster).
   Double-click a spot to walk from there.<br>
   Heights live in <code>HEIGHTS</code> and <code>SILLS</code> at the top of the script in index.html.
-  Roof traced from the 6/30 roof plan. Ground, trees, fences from the boundary survey.</div>
+  Roof, framing, foundations, toilets, shed, urn, plumbing and HVAC from the floor-plan project's IFC. Ground, trees, fences from the boundary survey.</div>
 </div>
 <div id="toast"></div>
 <div id="north" title="North"><span id="narrow">N<br>↑</span></div>
@@ -123,6 +121,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------------------
 // HEIGHTS, in feet above the main finished floor (z = 0 = 10.91 ft NAVD88).
@@ -167,10 +166,10 @@ const JALOUSIE_DOORS = ['D15'];              // M. Bath to lanai door: jalousie 
 const CLEAR_POSTS = ['C7', 'C8'];
 // Exposed lanai ceiling (William's photos): 4x6 joists at ~33-1/4" o.c., square to the screen line, spanning from the
 // screen beam to the house, under white decking at the ceiling height.
-const LANAI_JOISTS = { room: 'Lanai', square_to: 'K2-S1', spacing: 33.25 / 12, width: 3.5 / 12, depth: 5.5 / 12,
+const LANAI_JOISTS = { room: 'Lanai', square_to: 'W71', spacing: 33.25 / 12, width: 3.5 / 12, depth: 5.5 / 12,
   alignTo: [20.032, 47.410],     // a joist is centered on the kitchen corner column (William); the rest follow at the spacing
   // the same framing continues over the kitchen addition (the old lanai part of the kitchen, William): from the new
-  // kitchen walls to the old house wall line (x 33.34), up to the face of the kitchen beam (K2-BM at y 58.03)
+  // kitchen walls to the old house wall line (x 33.34), up to the face of the kitchen beam (BM1 at y 58.03)
   extra: [[[19.98, 47.45], [25.2, 45.79], [33.09, 45.79], [33.09, 57.905], [23.26, 57.905]]] };
 // Inside the building (any room, plus the kitchen addition) the roof's soffit and fascia are not drawn: rooms get their
 // own ceiling at 8'-0" and the 7'-5" soffit only shows outside the walls. Done with a footprint mask in the shader.
@@ -235,8 +234,8 @@ const CARPORT = {
 // with its edge showing at the jamb. (pocket true = a pocket slider: one clear pane.)
 // Interior trim (William 2026-11-01): window / slider casing to match the interior door casing, 4" wall base.
 const INTERIOR_TRIM = { casing: 1.5 / 12, proud: 0.5 / 12, base: 4 / 12, baseProud: 0.5 / 12 };
-const ANODIZED_DOORS = ['K2-D1', 'K2-D2'];   // new kitchen doors: anodized aluminum frames like the windows
-// Kitchen glass-wall columns (aluminum `columns` in the export, e.g. the 5" corner column K2-CL1): slab to header. Where
+const ANODIZED_DOORS = ['D37', 'D38'];   // new kitchen doors: anodized aluminum frames like the windows
+// Kitchen glass-wall columns (aluminum `columns` in the export, e.g. the 5" corner column CL4): slab to header. Where
 // one stands, the wall stub around it is only 2" aluminum door/slider frame members, so it reads as a clean square.
 
 // Studio door D32 (photos 2026-10-31): forest green both sides; upper lite with an X + diamond lattice over
@@ -260,11 +259,11 @@ const UTILITIES = [
   { name: 'service riser', box: [44.0, 20.38, 44.12, 20.46], z: [5.3, 7.4], m: 'aluminum' },
 ];
 
-// New kitchen walls, lanai side (William 2026-10-31): 1/2" anodized thresholds under the new doors; under K2-S3's sill
+// New kitchen walls, lanai side (William 2026-10-31): 1/2" anodized thresholds under the new doors; under S4's sill
 // lap siding, stopped by a white 1x trim under the sill and at the west post; a white trim board at the east end over
-// the old siding; the post between K2-S3 and the French door K2-D1 wrapped in anodized aluminum.
-const KITCHEN_WALL = { threshold: 0.5 / 12, board: 3.5 / 12, alumPosts: [['K2-W1', 'start'], ['K2-W3', 'end']], endTrim: { wall: 'K2-W1', opening: 'K2-S3' } };
-// Hall-side bookcase H10d-BK1: wood, shelves at these heights (2nd from the bottom is a bench), dividers recessed at the kick.
+// the old siding; the post between S4 and the French door D37 wrapped in anodized aluminum.
+const KITCHEN_WALL = { glassWalls: ['W65', 'W66', 'W67'], threshold: 0.5 / 12, board: 3.5 / 12, alumPosts: [['W65', 'start'], ['W66', 'end']], endTrim: { wall: 'W65', opening: 'S4' } };
+// Hall-side bookcase BK1: wood, shelves at these heights (2nd from the bottom is a bench), dividers recessed at the kick.
 const BOOKCASE_SHELVES = [[0.33, 0.4], [1.45, 1.58], [4.9, 4.97], [6.05, 6.12]];
 // Living room built-in K15: top flush with the 19" window sill, on a 4" toe kick; wall-mounted TV centered on the wall above (75", assumed).
 // Dining table T1: two aluminum columns (sizes assumed).
@@ -273,8 +272,8 @@ const DINING_TABLE = { id: 'T1', columns: 2, size: 0.75, spacing: 4.0 };
 // upholstered seat, woven (basketweave) wood back between tall back posts. Back = the side away from the table.
 const DINING_CHAIRS = { id: 'T2', table: 'T1', wood: 0xd7b88b, seat: 0xc4a27a, leg: 1.5 / 12, seatTop: 1.6, armTop: 2.2,
   backTop: 2.9, weave: 5 };
-// Booth K2-C3: upholstered back on the outer strip (the export's inner line), to 36" (assumed).
-const BOOTH_BACK = { id: 'K2-C3', height: 3.0 };
+// Booth C19: upholstered back on the outer strip (the export's inner line), to 36" (assumed).
+const BOOTH_BACK = { id: 'C19', height: 3.0 };
 
 // Built-up exterior materials, in feet.
 const CLAD = {
@@ -313,15 +312,15 @@ const KITCHEN = {
   counterTop: 3.0, quartz: 1.25 / 12, overhang: 1 / 12, kick: 4 / 12, kickDepth: 3 / 12, joint: 0.125 / 12,
   drawerSplits: [0.38, 0.76],            // 3 drawers: two deep below, a shallower top drawer
   runs: [
-    { id: 'K2-C1', poly: 'fill', types: 'wffwewww', kind: 'base', maxW: 3, wood: true },                     // cooking wall (from the W9 stub K2-W4) + east run; along the pass-through the bases run through the old W21 slot, back (e) = the wood face seen from the dining room
-    { id: 'K2-C6', poly: 'fill', types: 'efww', kind: 'base', maxW: 3, wood: true },                         // under the slider K2-S3, to the W9 stub (2026-11-01)
-    { id: 'K2-C2', poly: [[28.33, 51.52], [37.19, 51.52], [37.19, 54.52], [37.19, 58.41], [35.5, 58.41], [35.5, 54.52], [28.33, 54.52]],
-      types: 'fefewwe', kind: 'base', maxW: 3, sink: 'K2-A4', wood: true },                                    // island + side counter
+    { id: 'C16', poly: 'fill', types: 'wffwewww', kind: 'base', maxW: 3, wood: true },                     // cooking wall (from the W9 stub W68) + east run; along the pass-through the bases run through the old W21 slot, back (e) = the wood face seen from the dining room
+    { id: 'C17', poly: 'fill', types: 'efww', kind: 'base', maxW: 3, wood: true },                         // under the slider S4, to the W9 stub (2026-11-01)
+    { id: 'C18', poly: [[28.33, 51.52], [37.19, 51.52], [37.19, 54.52], [37.19, 58.41], [35.5, 58.41], [35.5, 54.52], [28.33, 54.52]],
+      types: 'fefewwe', kind: 'base', maxW: 3, sink: 'A4', wood: true },                                    // island + side counter
     { id: 'A1', poly: 'line0', types: 'wwef', kind: 'tall', maxW: 2, filler: true, wood: true },   // pantry: to its export `height` (the ceiling), less a 2" filler
     { id: 'U1', poly: 'line0', types: 'wweffe', kind: 'upper', maxW: 1.5, wood: true },                          // uppers
     { id: 'A2', poly: [[40.6875, 51.4883], [42.6875, 51.4883], [42.6875, 54.155], [40.6875, 54.155]], types: 'wwwf', kind: 'upper', bottom: 6.0, maxW: 1.5, wood: true },   // over the refrigerator (William 2026-11-01)
   ],
-  zones: [ { id: 'K2-A5', type: 'panel' }, { id: 'K2-A6', type: 'ss' }, { id: 'K2-A7', type: 'panel' }, { id: 'A3', type: 'oven' } ],
+  zones: [ { id: 'A5', type: 'panel' }, { id: 'A6', type: 'ss' }, { id: 'A7', type: 'panel' }, { id: 'A3', type: 'oven' } ],
   range: { id: 'A3', width: 32 / 12 },   // cooktop width; the export's "range" A3 (drawn 30") marks its place
   oven: { width: 30 / 12, height: 28.5 / 12 },
   microwave: { width: 30 / 12, height: 16.5 / 12, depth: 15 / 12 },   // stainless over-the-range hood/microwave, under the uppers   // stainless wall oven under the cooktop, top just under the quartz
@@ -333,25 +332,25 @@ const KITCHEN = {
 // `front` = which side of the element's rectangle faces the room (N/S/E/W; '-' = blind corner module).
 const WARDROBE_H = 7.75;   // ~93" (IKEA PAX height), toe kick included
 KITCHEN.runs.push(
-  { id: 'H10a-T7', front: 'E', kind: 'base', maxW: 2.5, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain', mirror: true },   // hall bath
-  { id: 'BA1-V1', front: 'E', kind: 'base', maxW: 2.4, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain' },   // M. Bath (window above: no mirror)
-  { id: 'H10b-LN1', front: 'N', kind: 'tall', maxW: 1.25, height: 7.0 },                                            // linen
-  { id: 'H10d-CF1', front: 'W', kind: 'tall', maxW: 1, height: WARDROBE_H },                                        // M. Closet filler
-  ...[['H10b-CM1', '-'], ['H10b-CM2', 'W'], ['H10b-CM3', 'W'], ['H10b-CM4', 'W'], ['H10b-CM6', 'S'], ['H10b-CM7', 'S'], ['H10b-CM8', 'S'],
-      ['H10-CL4a', 'E'], ['H10-CL4b', 'E'], ['H10a-CL4c', 'E'],
-      ['H10a-CN1', 'N'], ['H10a-CN2', 'N'], ['H10a-CN3', 'N'], ['H10a-CN4', 'N'],
-      ['H10a-CS1', 'S'], ['H10a-CS2', 'S'], ['H10a-CS3', 'S'], ['H10a-CS4', 'S']]
+  { id: 'T6', front: 'E', kind: 'base', maxW: 2.5, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain', mirror: true },   // hall bath
+  { id: 'V2', front: 'E', kind: 'base', maxW: 2.4, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain' },   // M. Bath (window above: no mirror)
+  { id: 'LN1', front: 'N', kind: 'tall', maxW: 1.25, height: 7.0 },                                            // linen
+  { id: 'CF1', front: 'W', kind: 'tall', maxW: 1, height: WARDROBE_H },                                        // M. Closet filler
+  ...[['CM1', '-'], ['CM2', 'W'], ['CM3', 'W'], ['CM4', 'W'], ['CM5', 'S'], ['CM6', 'S'], ['CM7', 'S'],
+      ['CL1', 'E'], ['CL2', 'E'], ['CL3', 'E'],
+      ['CN1', 'N'], ['CN2', 'N'], ['CN3', 'N'], ['CN4', 'N'],
+      ['CS1', 'S'], ['CS2', 'S'], ['CS3', 'S'], ['CS4', 'S']]
     .map(([id, front]) => ({ id, front, kind: 'tall', maxW: 2, height: WARDROBE_H, edgeJoints: true })),   // one flush door per 2' box, joints on the box edges (William 2026-11-01)
 );
 const BATH = {
-  tubs: [{ id: 'F6', inner: 1, spout: 'E' }, { id: 'H10-T1', inner: 1, spout: 'W' }],   // alcove tubs, 20" rim
+  tubs: [{ id: 'F6', inner: 1, spout: 'E' }, { id: 'T3', inner: 1, spout: 'W' }],   // alcove tubs, 20" rim
   tubRim: 20 / 12,
   showers: [{ id: 'F3', open: 'W', head: 'N' }],   // plumbing walls: shower north, tub east (William 2026-11-01)                                         // M. Bath: glass on the open side
-  toilets: [{ id: 'F4', back: [34.67, 38.39], dir: [0, 1] }, { id: 'H10a-T2', back: [46.53, 30.15], dir: [1, 0] }],
-  laundry: [{ id: 'H10a-LW', front: 'N' }, { id: 'H10a-LD', front: 'N' }],             // front-load washer + dryer, 38-1/2" tall
-  bookcase: { id: 'H10d-BK1', open: 'E', height: 8.0 },   // to the ceiling (William 2026-11-01)                                  // hall-side open shelving, 3 bays
+  toilets: [{ id: 'F4', back: [34.67, 38.39], dir: [0, 1] }, { id: 'T4', back: [46.53, 30.15], dir: [1, 0] }],
+  laundry: [{ id: 'LW1', front: 'N' }, { id: 'LD1', front: 'N' }],             // front-load washer + dryer, 38-1/2" tall
+  bookcase: { id: 'BK1', open: 'E', height: 8.0 },   // to the ceiling (William 2026-11-01)                                  // hall-side open shelving, 3 bays
 };
-const KITCHEN_HANDLED = new Set(['K2-C1', 'K2-C6', 'K2-C2', 'K33', 'A1', 'A2', 'A3', 'U1', 'K2-A4', 'K2-A5', 'K2-A6', 'K2-A7',
+const KITCHEN_HANDLED = new Set(['C16', 'C17', 'C18', 'K33', 'A1', 'A2', 'A3', 'U1', 'A4', 'A5', 'A6', 'A7',
   ...KITCHEN.runs.map(r => r.id), ...BATH.tubs.map(t => t.id), ...BATH.showers.map(t => t.id), ...BATH.toilets.map(t => t.id),
   ...BATH.laundry.map(t => t.id), BATH.bookcase.id]);
 
@@ -630,6 +629,49 @@ function triMesh(tris, material) {
   const m = new THREE.Mesh(g, material); m.castShadow = true; m.receiveShadow = true;
   return m;
 }
+// ----- Shapes from the floor-plan project's IFC (model/ifc_extras.json, written by scripts/ifc_extras.py from that
+// project's export/<name>.ifc): roof, lanai / studio framing, kitchen beams, foundations,
+// toilets, shed, urn, plumbing, HVAC. Drawn here in this viewer's materials; the IFC is the accurate model, so these
+// aren't rebuilt from rules here. Re-run the script after the IFC changes.
+const IFC_COLORS = { CW: 0x3b78c9, HW: 0xc8463c, SAN: 0x5d4b3c, VENT: 0x7d8288, SUPPLY: 0xbfc3c7, CONDENSATE: 0xf2f2ee };
+// drawn by this viewer instead: the AHU (house.json), outdoor units (UTILITIES, from photos), carport beams (CARPORT)
+const IFC_SKIP = new Set(['AHU1', 'CU1', 'CU2', 'CB1', 'CB2']);
+const extras = cat => (EXTRAS ? EXTRAS.items : []).filter(it => (Array.isArray(cat) ? cat.includes(it.cat) : it.cat === cat) && !IFC_SKIP.has(it.id));
+function clipTriZ(t, zc) {   // the part of a triangle below z = zc, as triangles
+  if (t.every(p => p[2] <= zc)) return [t];
+  const o = [];
+  for (let i = 0; i < 3; i++) {
+    const a = t[i], b = t[(i + 1) % 3], ia = a[2] <= zc, ib = b[2] <= zc;
+    if (ia) o.push(a);
+    if (ia !== ib) { const k = (zc - a[2]) / (b[2] - a[2]); o.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, zc]); }
+  }
+  const r = []; for (let i = 1; i + 1 < o.length; i++) r.push([o[0], o[i], o[i + 1]]); return r;
+}
+// One mesh per material: matOf(item, normal [x,y,z], part) -> material or null (leave the face out).
+function ifcMeshes(items, matOf, { cut = Infinity, dz = () => 0, smooth = false, shadow = true } = {}) {
+  const buckets = new Map(), g = new THREE.Group();
+  for (const it of items) {
+    const off = dz(it);
+    for (const p of it.parts) {
+      const V = p.v, F = p.f;
+      for (let i = 0; i + 2 < F.length; i += 3) {
+        const t = [F[i], F[i + 1], F[i + 2]].map(k => [V[3 * k], V[3 * k + 1], V[3 * k + 2] + off]);
+        const ux = t[1][0] - t[0][0], uy = t[1][1] - t[0][1], uz = t[1][2] - t[0][2], vx = t[2][0] - t[0][0], vy = t[2][1] - t[0][1], vz = t[2][2] - t[0][2];
+        let n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx]; const L = Math.hypot(...n) || 1; n = n.map(c => c / L);
+        const m = matOf(it, n, p); if (!m) continue;
+        let a = buckets.get(m); if (!a) buckets.set(m, a = []);
+        for (const c of clipTriZ(t, cut)) for (const q of c) a.push(q[0], q[1], q[2]);
+      }
+    }
+  }
+  for (const [m, a] of buckets) {
+    if (!a.length) continue;
+    let geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
+    if (smooth) geo = toCreasedNormals(geo, Math.PI / 5); else geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, m); mesh.castShadow = shadow; mesh.receiveShadow = true; g.add(mesh);
+  }
+  return g;
+}
 const fan = poly => { const t = []; for (let i = 1; i + 1 < poly.length; i++) t.push([poly[0], poly[i], poly[i + 1]]); return t; };
 // Same as clipU, but on the v (across-the-wall) coordinate.
 const clipV = (poly, lo, hi) => clipU(poly.map(([u, v]) => [v, u]), lo, hi).map(([v, u]) => [u, v]);
@@ -820,9 +862,9 @@ function postPolys(D) {
 }
 
 // ---------------------------------------------------------------------------
-let DATA = null, ROOF = null, SURVEY = null;
+let DATA = null, ROOF = null, SURVEY = null, EXTRAS = null;
 const opts = { roof: true, furn: true, labels: true, trees: true, terrain: true, contours: false, newwork: false, site: true, landscape: true, cut: Infinity,
-               wingFinish: 'lap', wingRoof: 'hip' };
+               wingFinish: 'lap', mep: false, fdn: false };
 
 // ----- Survey ground: triangulated surface (model/survey.json, z relative to the main floor)
 const FAR_FIELD = -4.6;   // flat lawn beyond the surveyed area, just below the lowest shot
@@ -1006,15 +1048,17 @@ function build() {
     const ops = [...(w.openings || [])].sort((a, b) => a.from - b.from);
 
     if (w.kind === 'screen') {   // lanai screen between the posts, under a white header beam (same as the kitchen's)
-      const m = panel(toXY([0, vmid]), toXY([L, vmid]), 0, Math.min(HEIGHTS.head, cut), 0.02, screenMat); if (m) { m.castShadow = false; add(m); }
+      const bm = extras('framing').find(it => it.id === w.id + '-BM');   // the IFC's perimeter beam on this screen line
+      const top = bm ? Math.min(...bm.parts.flatMap(p => p.v.filter((_, i) => i % 3 === 2))) : HEIGHTS.head;
+      const m = panel(toXY([0, vmid]), toXY([L, vmid]), 0, Math.min(top, cut), 0.02, screenMat); if (m) { m.castShadow = false; add(m); }
       const [b0, b1] = capped(HEIGHTS.head, HEIGHTS.ceiling);
-      if (b1 > b0) add(panel(toXY([-0.15, vmid]), toXY([L + 0.15, vmid]), b0, b1, 0.48, mat('post')));
+      if (b1 > b0 && !bm) add(panel(toXY([-0.15, vmid]), toXY([L + 0.15, vmid]), b0, b1, 0.48, mat('post')));
       continue;
     }
 
     const hl = opts.newwork && w.phase === 'new';
     const isBrick = w.construction === 'brick';
-    const windowWall = /^K2-W/.test(w.id) && !!w.face && w.phase === 'new';   // new kitchen exterior: white posts with glazing between (William); not kept pieces like the W9 stub K2-W4
+    const windowWall = KITCHEN_WALL.glassWalls.includes(w.id) && !!w.face && w.phase === 'new';   // new kitchen exterior: white posts with glazing between (William); not kept pieces like the W9 stub W68
     const wm = hl ? mat('newwall') : mat(isBrick ? 'mortar' : windowWall ? 'post' : 'wall');
     const uMin = Math.min(...fp.map(q => q[0])), uMax = Math.max(...fp.map(q => q[0]));
     if (windowWall) {   // door / slider frames run right up to the faces of the posts and columns (no filler between)
@@ -1275,7 +1319,7 @@ function build() {
         if (z1 > z0) add(prism([[c.from - 0.08, vext], [c.to + 0.08, vext], [c.to + 0.08, vb], [c.from - 0.08, vb]].map(toXY), z0, z1, aluMat));
         continue;
       }
-      // panel inside a ribbon's trim opening (H10-X1, William 2026-11-01): painted plywood from the sill to the head, with
+      // panel inside a ribbon's trim opening (W72, William 2026-11-01): painted plywood from the sill to the head, with
       // the windows' head and sill trim carried across it so the run reads as one trimmed opening; siding below
       const zs = c.sill, zh = c.head ?? HEIGHTS.head, k = 0.5, ins = CLAD.trimInset * k, tw = ins + CLAD.finThick * k;
       const dIn = CLAD.lapButt + 0.25 / 12, dFin = CLAD.lapButt + (CLAD.finDepth - CLAD.lapButt) * k;
@@ -1552,7 +1596,8 @@ function build() {
       if (s.head === 'S') { const cx = (x0 + x1) / 2; cyl(0.03, 0.5, cx, y0 + 0.25, 6.6, 'y'); cyl(0.25, 0.04, cx, y0 + 0.5, 6.55, 'z'); cyl(0.2, 0.03, cx, y0 + 0.02, 4.0, 'y'); }
     }
     // toilets: tank, bowl, seat (local frame: u from the back wall along dir, v sideways)
-    for (const t of BATH.toilets) {
+    if (EXTRAS) add(ifcMeshes(extras('toilet'), () => mat('porcelain'), { cut, smooth: true }));   // two-piece toilets (IFC)
+    for (const t of EXTRAS ? [] : BATH.toilets) {
       const [bx, by] = t.back, [ux, uy] = t.dir, P = (u, v) => [bx + ux * u - uy * v, by + uy * u + ux * v];
       const rect = (u0, u1, v0, v1) => [P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v1)];
       blk(rect(0, 0.62, -0.82, 0.82), 1.3, 2.45, porc);              // tank
@@ -1766,13 +1811,16 @@ function build() {
   }
 
   // Beams from the export (kind beam, `bottom` = underside height; the kitchen's are at the 6'-8" header)
-  for (const e of D.elements.filter(e => e.kind === 'beam'))
+  if (!EXTRAS) for (const e of D.elements.filter(e => e.kind === 'beam'))
     for (const l of e.lines) for (let i = 0; i + 3 < l.length; i += 2)
       member([l[i], l[i + 1]], [l[i + 2], l[i + 3]], e.bottom ?? HEIGHTS.head, HEIGHTS.ceiling, 0.5, mat('wall'));   // drywall-wrapped header: wall paint, so it reads as one plane with the walls it lines up with (William)
 
   // Exposed joists over the lanai and the kitchen addition, on one spacing. Structure, so drawn with or without the
-  // roof, and cut like the walls when the cutaway is below their top.
-  {
+  // roof, and cut like the walls when the cutaway is below their top. With the IFC: its framing instead (perimeter
+  // beams on the screen lines, lanai + studio joists, 4x6 blocking, 1x fascia, kitchen beams BM1 / BM2).
+  if (EXTRAS) add(ifcMeshes(extras('framing'), it => it.id === 'STUDIO-JOISTS' ? mat('carportWood')   // studio: stained, exposed
+    : /^BM\d/.test(it.id) ? mat('wall') : mat('trim'), { cut }));   // kitchen beams drywall-wrapped (wall paint); lanai white
+  else {
     const room = D.rooms.find(r => r.name === LANAI_JOISTS.room), sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to);
     if (room && sq) {
       const L = Math.hypot(sq.b[0] - sq.a[0], sq.b[1] - sq.a[1]), ax = [(sq.b[0] - sq.a[0]) / L, (sq.b[1] - sq.a[1]) / L], jn = [ax[1], -ax[0]];
@@ -1804,6 +1852,7 @@ function build() {
   // Furniture, casework, fixtures
   if (opts.furn) for (const e of D.elements) {
     if (e.kind === 'beam') continue;   // drawn as framing members above
+    if (EXTRAS && /shed/i.test(e.name)) continue;   // the IFC's shed (below)
     if (KITCHEN_HANDLED.has(e.id)) continue;   // drawn by the kitchen builder below
     if (e.kind === 'paving' && !/planter/i.test(e.name)) continue;
     if (e.variant === 'bunk') { drawBunk(e); continue; }
@@ -1868,20 +1917,21 @@ function build() {
         const sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to), L = Math.hypot(sq.b[0] - sq.a[0], sq.b[1] - sq.a[1]);
         const ax = [(sq.b[0] - sq.a[0]) / L, (sq.b[1] - sq.a[1]) / L], nn = [-ax[1], ax[0]], v = [];
         for (const poly of [clean(r.poly), ...LANAI_JOISTS.extra]) {
-          add(prism(poly, HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat('trim'), { shadow: false }));
+          if (!EXTRAS) add(prism(poly, HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat('trim'), { shadow: false }));
           const off = p => p[0] * nn[0] + p[1] * nn[1], o0 = Math.min(...poly.map(off)), o1 = Math.max(...poly.map(off));
           for (let k = o0 + CARPORT.boardW; k < o1; k += CARPORT.boardW) {
             const hits = [];
             for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], fa = off(a) - k, fb = off(b) - k;
               if ((fa < 0) !== (fb < 0)) { const t = fa / (fa - fb); hits.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); } }
             hits.sort((p, q) => (p[0] * ax[0] + p[1] * ax[1]) - (q[0] * ax[0] + q[1] * ax[1]));
-            for (let i = 0; i + 1 < hits.length; i += 2) v.push(hits[i][0], hits[i][1], HEIGHTS.ceiling, hits[i + 1][0], hits[i + 1][1], HEIGHTS.ceiling);
+            for (let i = 0; i + 1 < hits.length; i += 2) v.push(hits[i][0], hits[i][1], HEIGHTS.ceiling - 0.004, hits[i + 1][0], hits[i + 1][1], HEIGHTS.ceiling - 0.004);
           }
         }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
         add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc9c6bf })));
         continue;
       }
+      if (EXTRAS && r.name === 'Studio') continue;   // exposed stained deck + joists (IFC)
       add(prism(carportCut(r), HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
       if (r.name === CARPORT.room) {   // T&G board joints, boards running east-west
         const cp = carportCut(r), xs = cp.map(p => p[0]), ys = cp.map(p => p[1]), v = [];
@@ -1890,15 +1940,23 @@ function build() {
         add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x5a3b24 })));
       }
     }
-    for (const h of ROOF.hips) add(hipRoof(h.rect));
-    for (const f of ROOF.flats) add(flatRoof(f.poly, !!f.exposed));
-    for (const z of LANAI_JOISTS.extra) add(prism(z, HEIGHTS.ceiling + 0.02, HEIGHTS.ceiling + 0.07, mat('trim')));   // exposed deck (a hair above the lanai deck where they overlap)
-    for (const l of ROOF.leantos || []) add(leanTo(l));
-    const r = ROOF.addition.rect;
-    if (opts.wingRoof === 'hip') {
+    if (EXTRAS) {   // the IFC's roof: hips merged with the wing hip, cross ridge and cricket; lanai + studio decks
+      const sof = soffitMat(zones);
+      add(ifcMeshes(extras('roof').filter(it => !/porch/i.test(it.id)), (it, n) => {
+        const flat = /lanai|studio/i.test(it.id);
+        if (n[2] > 0.3) return mat(flat ? 'membrane' : 'shingle');
+        if (n[2] < -0.3) return flat ? mat(/studio/i.test(it.id) ? 'carportWood' : 'trim') : sof;   // exposed decks: lanai white, studio stained
+        return mat('trim');   // fascia
+      }));
+    } else {
+      for (const h of ROOF.hips) add(hipRoof(h.rect));
+      for (const f of ROOF.flats) add(flatRoof(f.poly, !!f.exposed));
+      const r = ROOF.addition.rect;
       add(hipRoof(r));
       if (ROOF.addition.cross) add(hipRoof(ROOF.addition.cross.rect));   // the east-west ridge that dies into the main roof
-    } else add(flatRoof([[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]));
+    }
+    for (const z of LANAI_JOISTS.extra) add(prism(z, HEIGHTS.ceiling + 0.02, HEIGHTS.ceiling + 0.07, mat('trim')));   // exposed deck (a hair above the lanai deck where they overlap)
+    for (const l of ROOF.leantos || []) add(leanTo(l));   // the porch: this viewer's lean-to (rafters, fascia, end triangles)
   }
 
   // Seats (sofas, recliners) from elements with a `back` side: base 6" off the floor on four wood feet, backrest, arms on the
@@ -2047,6 +2105,37 @@ function build() {
     const [x0, y0, x1, y1] = U.box, zg = U.g ? (opts.terrain && SURVEY ? groundAt((x0 + x1) / 2, (y0 + y1) / 2) : HEIGHTS.grade) : 0;
     const [z0, z1] = capped(zg + U.z[0] - (U.g && U.z[0] === 0 ? 0.3 : 0), zg + U.z[1]);
     if (z1 > z0) add(prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], z0, z1, mat(U.m)));
+  }
+  // From the IFC (see ifcMeshes): the relocated shed, set on the survey ground (the IFC sits it on a flat grade)
+  if (EXTRAS) {
+    const zmin = it => Math.min(...it.parts.flatMap(p => p.v.filter((_, i) => i % 3 === 2)));
+    const mid = items => { const v = items.flatMap(it => it.parts.flatMap(p => p.v)), xs = v.filter((_, i) => i % 3 === 0), ys = v.filter((_, i) => i % 3 === 1);
+      return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]; };
+    const shed = extras('shed');
+    if (shed.length) {
+      const c = mid(shed), dz = groundAt(c[0], c[1]) - HEIGHTS.grade;
+      add(ifcMeshes(shed, (it, n, p) => it.ifc === 'IfcWindow' ? (p.glass ? glassMat : mat('trim'))
+        : it.ifc === 'IfcDoor' ? mat('door') : it.ifc === 'IfcRoof' ? (n[2] > 0.3 ? mat('shingle') : mat('trim')) : mat('siding'),
+        { cut, dz: () => dz }));
+    }
+    // the urn on its planter's soil (raised planter: wall top less 0.15, as buildLandscape)
+    if (opts.landscape) for (const u of extras('planter').filter(it => /urn/i.test(it.type))) {
+      const c = mid([u]), soil = groundAt(c[0], c[1]) + LANDSCAPE.planterWall - 0.15;
+      add(ifcMeshes([u], () => mat('concrete'), { cut, dz: () => soil - zmin(u), smooth: true }));
+    }
+    // studio ductless wall unit, the condensate cover on W1, the attic access panel
+    if (opts.furn) add(ifcMeshes(EXTRAS.items.filter(it => ['MS1', 'CDCOVER', 'AP1'].includes(it.id)),
+      it => mat(it.id === 'MS1' ? 'appliance_white' : 'trim'), { cut }));
+    // Plumbing + HVAC (existing; much of the routing is marked assumed in the floor-plan project)
+    if (opts.mep) add(ifcMeshes(extras(['plumbing', 'hvac']).filter(it => !['MS1', 'CDCOVER'].includes(it.id)), it =>
+      it.system && IFC_COLORS[it.system] != null ? mat(IFC_COLORS[it.system])
+      : /IfcAirTerminal/.test(it.ifc) ? mat('trim') : /IfcTank/.test(it.ifc) ? mat('concrete') : /CHASE/.test(it.id) ? mat('wall') : mat('appliance'),
+      { cut, smooth: true }));
+    // Foundations: thickened slab edges, the wing's stem wall + strip footing, the chimney footing (below grade)
+    if (opts.fdn) add(ifcMeshes(extras('foundation').filter(it => it.type !== 'STRUCTURAL SLAB'), () => mat('concrete'), { cut }));
+    if (opts.mep || opts.fdn) model.traverse(o => {   // see-through ground so what's under it shows
+      if (o.userData.ground && o.material) { o.material = o.material.clone(); Object.assign(o.material, { transparent: true, opacity: 0.35, depthWrite: false }); }
+    });
   }
   if (opts.landscape && D.landscape) buildLandscape(D, add, capped, cut);
   // Trees (survey positions and trunk sizes; heights and spreads estimated)
@@ -2247,7 +2336,7 @@ function setView(top) {
 const $ = id => document.getElementById(id);
 $('b3d').onclick = () => setView(false);
 $('btop').onclick = () => setView(true);
-for (const k of ['roof', 'furn', 'labels', 'trees', 'terrain', 'contours', 'newwork', 'site', 'landscape']) $(k).onchange = e => { opts[k] = e.target.checked; build(); };
+for (const k of ['roof', 'furn', 'labels', 'trees', 'terrain', 'contours', 'newwork', 'site', 'landscape', 'mep', 'fdn']) $(k).onchange = e => { opts[k] = e.target.checked; build(); };
 function setSeg(key, v) {
   opts[key] = v;
   document.querySelectorAll(`.seg[data-opt="${key}"] button`).forEach(b => b.classList.toggle('on', b.dataset.v === v));
@@ -2531,24 +2620,25 @@ function loop() {
   labelRenderer.render(scene, camera);
 }
 
-// URL options, handy for screenshots: ?view=top&cut=4&roof=0&finish=stucco&wingroof=flat&az=90&el=20&dist=0.8&t=40,45
+// URL options, handy for screenshots: ?view=top&cut=4&roof=0&finish=stucco&mep=1&fdn=1&az=90&el=20&dist=0.8&t=40,45
 // Saved-view links: walk=x,y,bearing,pitch (eye level) | cam=px,py,pz,tx,ty,tz (orbit, world) | view=top&top=x,y,zoom
 const q = new URLSearchParams(location.search);
 // The standalone build (scripts/build_standalone.py) embeds the model files in window.__EMBED.
 const getJSON = u => window.__EMBED?.[u] ? Promise.resolve(window.__EMBED[u])
   : fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
 
-Promise.all([getJSON('model/house.json'), getJSON('model/roof.json').catch(() => null), getJSON('model/survey.json').catch(() => null)])
-.then(([d, roof, survey]) => {
-  DATA = d; ROOF = roof; SURVEY = survey;
+Promise.all([getJSON('model/house.json'), getJSON('model/roof.json').catch(() => null), getJSON('model/survey.json').catch(() => null),
+             getJSON('model/ifc_extras.json').catch(() => null)])
+.then(([d, roof, survey, extras]) => {
+  DATA = d; ROOF = roof; SURVEY = survey; EXTRAS = extras;
   $('msg').remove();
-  if (d.scheme?.applied) $('scheme').textContent = 'Proposed: ' + d.scheme.applied.join(' + ');
+  if (d.scheme?.applied?.length) $('scheme').textContent = 'Proposed: ' + d.scheme.applied.join(' + ');
   if (q.has('cut')) { $('cutaway').checked = true; $('cuth').value = q.get('cut'); }
   for (const k of ['roof', 'labels', 'trees', 'furn', 'terrain']) if (q.get(k) === '0') $(k).checked = opts[k] = false;
   if (q.get('contours') === '1') $('contours').checked = opts.contours = true;
   if (q.get('new') === '1') $('newwork').checked = opts.newwork = true;
   if (q.get('finish')) setSeg('wingFinish', q.get('finish'));
-  if (q.get('wingroof')) setSeg('wingRoof', q.get('wingroof'));
+  for (const k of ['mep', 'fdn']) if (q.get(k) === '1') $(k).checked = opts[k] = true;
   frame();
   applyCut();
   setView(q.get('view') === 'top');
