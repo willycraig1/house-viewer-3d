@@ -1,0 +1,2574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="robots" content="noindex, nofollow">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>House renovation 3D</title>
+<style>
+  :root {
+    --bg: #eef0f2; --panel: rgba(255,255,255,0.94); --ink: #1e2328; --muted: #5d6670;
+    --line: #d5d9de; --accent: #2f5d7c; --new: #e39a5b;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 260px; max-height: calc(100% - 24px); overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.08); box-sizing: border-box; }
+  #panel h1 { font-size: 15px; margin: 0 0 2px; }
+  #panel .sub { color: var(--muted); margin-bottom: 10px; }
+  .row { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+  button { flex: 1; padding: 6px 8px; border: 1px solid var(--line); background: #fff; border-radius: 6px;
+    cursor: pointer; font: inherit; color: var(--ink); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  label { display: flex; align-items: center; gap: 6px; margin: 4px 0; cursor: pointer; }
+  input[type=range] { width: 100%; }
+  .sec { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .sec h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 4px; font-weight: 600; }
+  .seg { display: flex; gap: 4px; margin: 4px 0 6px; }
+  .seg button { padding: 4px 6px; font-size: 12px; }
+  [hidden] { display: none !important; }   /* .row's display:flex would otherwise show hidden rows */
+  .help { color: var(--muted); font-size: 11.5px; margin: 2px 0 4px; }
+  select { width: 100%; font: inherit; padding: 4px; margin: 4px 0; }
+  .lbl.measure { background: #1e2328; color: #fff; font-size: 12px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1e2328; color: #fff;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; pointer-events: none; opacity: 0; transition: opacity .3s; }
+  .note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--new); vertical-align: -1px; }
+  .lbl { font-size: 11px; color: #222; background: rgba(255,255,255,.8); padding: 1px 5px; border-radius: 4px;
+    white-space: nowrap; text-align: center; pointer-events: none; line-height: 1.25; }
+  .lbl small { color: #666; }
+  .lbl.tree { background: rgba(240,248,236,.85); color: #2f4a22; }
+  .lbl.contour { background: rgba(255,250,240,.75); color: #5a3e1c; font-size: 10px; padding: 0 3px; }
+  #north { position: fixed; right: 16px; bottom: 16px; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; font-weight: 600; }
+  #north span { display: block; transform-origin: 50% 50%; text-align: center; line-height: 1.1; }
+  #msg { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; padding: 16px; text-align: center; }
+  @media (max-width: 600px) { #panel { width: auto; right: 12px; max-height: 45%; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="view"></div>
+<div id="msg">Loading model…</div>
+<div id="panel">
+  <h1>House renovation 3D</h1>
+  <div class="sub" id="scheme">Proposed: K2 + H10e</div>
+  <div class="row">
+    <button id="b3d" class="on">3D view</button>
+    <button id="btop">Top view</button>
+    <button id="bwalk" title="Eye-level walkthrough (or double-click a spot in the 3D view)">Walk</button>
+  </div>
+  <div id="walkhelp" class="help" hidden>Drag to look around. W/S or ↑/↓ walk, A/D step sideways, ←/→ turn,
+    Shift faster, scroll to step. Double-click a spot to go there. Esc to leave.
+    <label><input type="checkbox" id="walkthru"> Walk through walls</label></div>
+
+  <div class="sec">
+    <h2>Views</h2>
+    <select id="views"></select>
+    <div class="row"><button id="vsave">Save view</button><button id="vdel" disabled>Delete</button><button id="vlink" title="Copy a link that opens this view">Copy link</button></div>
+    <div class="row" id="vform" hidden><input id="vtext" style="flex:3;min-width:0;font:inherit;padding:4px"><button id="vok">Save</button></div>
+  </div>
+
+  <div class="sec">
+    <h2>Measure</h2>
+    <div class="row"><button id="bmeasure" title="Click two points on the model">Tape measure</button><button id="mclear">Clear</button></div>
+    <div id="mhelp" class="help" hidden>Click two points (snaps to corners within 2"). Esc stops.</div>
+  </div>
+
+  <div class="sec">
+    <h2>Show</h2>
+    <label><input type="checkbox" id="roof" checked> Roof</label>
+    <label><input type="checkbox" id="furn" checked> Furniture &amp; casework</label>
+    <label><input type="checkbox" id="labels" checked> Room labels (roof off or cutaway)</label>
+    <label><input type="checkbox" id="terrain" checked> Ground from survey</label>
+    <label><input type="checkbox" id="contours"> Contours (6", NAVD88)</label>
+    <label><input type="checkbox" id="trees" checked> Trees (survey; heights estimated)</label>
+    <label><input type="checkbox" id="site" checked> Lot &amp; setback lines</label>
+    <label><input type="checkbox" id="landscape" checked> Site plan (revised landscape)</label>
+    <label><input type="checkbox" id="newwork"> Highlight new walls <span class="swatch"></span></label>
+  </div>
+
+  <div class="sec">
+    <h2>New wing options</h2>
+    <div>Exterior finish</div>
+    <div class="seg" data-opt="wingFinish">
+      <button data-v="lap" class="on">Lap siding (match)</button><button data-v="stucco">Smooth stucco</button>
+    </div>
+    <div>Roof (not in the roof plan yet)</div>
+    <div class="seg" data-opt="wingRoof">
+      <button data-v="hip" class="on">Hip</button><button data-v="flat">Flat</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <label><input type="checkbox" id="cutaway"> Cutaway: walls cut at <b id="cutval">6'-0"</b></label>
+    <input type="range" id="cuth" min="1" max="8" step="0.25" value="6">
+  </div>
+  <div class="note">Drag to orbit, right-drag to pan, scroll to zoom, arrow keys to move (Shift: faster).
+  Double-click a spot to walk from there.<br>
+  Heights live in <code>HEIGHTS</code> and <code>SILLS</code> at the top of the script in index.html.
+  Roof traced from the 6/30 roof plan. Ground, trees, fences from the boundary survey.</div>
+</div>
+<div id="toast"></div>
+<div id="north" title="North"><span id="narrow">N<br>↑</span></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ---------------------------------------------------------------------------
+// HEIGHTS, in feet above the main finished floor (z = 0 = 10.91 ft NAVD88).
+// Confirmed by William 2026-10-30 unless marked "assumed". See docs/DECISIONS.md.
+// ---------------------------------------------------------------------------
+const HEIGHTS = {
+  ceiling:      8.0,      // top of walls (confirmed)
+  head:         6 + 8/12, // door, window and slider heads, approx. (confirmed)
+  sill:         3.0,      // default window sill where SILLS has no rule (assumed)
+  counter:      3.0,      // 36" cabinets (confirmed)
+  upperBottom:  4.5,      // wall cabinets (assumed)
+  upperTop:     8 - 2/12, // uppers run to the ceiling with a 2" filler strip on top (William 2026-11-01)
+  tall:         7.0,      // pantry, refrigerator, wardrobes, linen, bookcase (assumed)
+  screen:       8.0,      // lanai screen and posts (assumed)
+  // Roof, from the 7/24 rough structural section (measured at 1" = 1'-0"):
+  roofPitch:    2.25/12,  // rise per foot (section measures 2.23 in 12)
+  eaveTop:      8.08,     // top of roofing at the eave edge
+  soffit:       7.42,     // flat soffit / bottom of fascia
+  chimney:      12.0,     // top of the stack (assumed; photo shows it above the roof)
+  grillPlinth:  40/12,    // grill projection into the lanai (William: "maybe 40 in")
+  shed:         7.5,      // (assumed)
+  grade:        -9/12,    // lawn where the survey has no ground shots (William: 1" below the studio floor)
+  foundation:   -2.0,     // bottom of walls, slabs and posts (hidden in the ground)
+  doorOpenDeg:  70,       // how far door leaves are drawn open
+};
+
+// Floor levels: rooms and surfaces carry `floor_z` in the export (Studio -8", Carport and Front porch -4"); else 0.
+
+// Window sills, measured from the floor of the room the window serves. Fallback only: the export gives every window
+// and slider its own `sill` (and `head`) from William's rules.
+const SILLS = {
+  rooms: { 'Living': 19/12, 'Dining': 19/12, 'Bedroom': 42/12, 'M. Bedroom': 42/12, 'Bath': 42/12,
+           'M. Bath': 56/12, 'Carport': 56/12, 'Studio': 48/12 },
+};
+
+// Glazing patterns come from the export (opening.pattern: rows / cols, sides + sideRows, jalousie). Fallback: any window
+// serving the M. Bath or facing the carport gets jalousie blades (they are all jalousies).
+const JALOUSIE = 4 / 12;                     // blade spacing
+const JALOUSIE_DOORS = ['D15'];              // M. Bath to lanai door: jalousie lite
+// Lanai posts that the wall ends swallow; the walls stop at the post faces so the 4x4s read (William: one each side of
+// the chimney).
+const CLEAR_POSTS = ['C7', 'C8'];
+// Exposed lanai ceiling (William's photos): 4x6 joists at ~33-1/4" o.c., square to the screen line, spanning from the
+// screen beam to the house, under white decking at the ceiling height.
+const LANAI_JOISTS = { room: 'Lanai', square_to: 'K2-S1', spacing: 33.25 / 12, width: 3.5 / 12, depth: 5.5 / 12,
+  alignTo: [20.032, 47.410],     // a joist is centered on the kitchen corner column (William); the rest follow at the spacing
+  // the same framing continues over the kitchen addition (the old lanai part of the kitchen, William): from the new
+  // kitchen walls to the old house wall line (x 33.34), up to the face of the kitchen beam (K2-BM at y 58.03)
+  extra: [[[19.98, 47.45], [25.2, 45.79], [33.09, 45.79], [33.09, 57.905], [23.26, 57.905]]] };
+// Inside the building (any room, plus the kitchen addition) the roof's soffit and fascia are not drawn: rooms get their
+// own ceiling at 8'-0" and the 7'-5" soffit only shows outside the walls. Done with a footprint mask in the shader.
+let SOFFIT_MAT = null;
+let ROOF_MAT = null;
+function soffitMat(zones) { return SOFFIT_MAT || (SOFFIT_MAT = maskMat(COLORS.trim, zones)); }
+function maskMat(color, zones) {   // a material that leaves out any pixel inside the zones (plan polygons)
+  const all = zones.flat(), x0 = Math.min(...all.map(p => p[0])) - 2, y0 = Math.min(...all.map(p => p[1])) - 2;
+  const w = Math.max(...all.map(p => p[0])) + 2 - x0, h = Math.max(...all.map(p => p[1])) + 2 - y0, N = 2048;
+  const c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'); g.fillStyle = '#fff';
+  for (const z of zones) { g.beginPath(); z.forEach((p, i) => g[i ? 'lineTo' : 'moveTo']((p[0] - x0) / w * N, (p[1] - y0) / h * N)); g.closePath(); g.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.flipY = false; tex.minFilter = tex.magFilter = THREE.NearestFilter;
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.footMask = { value: tex }; sh.uniforms.footBox = { value: new THREE.Vector4(x0, y0, w, h) };
+    sh.vertexShader = 'varying vec2 vPlan;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n  vPlan = (modelMatrix * vec4(position, 1.0)).xz * vec2(1.0, -1.0);');
+    sh.fragmentShader = 'varying vec2 vPlan; uniform sampler2D footMask; uniform vec4 footBox;\n' + sh.fragmentShader.replace('void main() {',
+      'void main() {\n  vec2 fuv = (vPlan - footBox.xy) / footBox.zw;\n  if (fuv.x > 0.0 && fuv.x < 1.0 && fuv.y > 0.0 && fuv.y < 1.0 && texture2D(footMask, fuv).r > 0.5) discard;');
+  };
+  return m;
+}
+// Window ribbons: neighbouring windows cased as one band, with white trim posts over the wall between them (photo).
+const RIBBONS = [{ wall: 'W42', ids: ['N28', 'N29', 'N30'] }];   // studio south wall
+// Front (brick) wall details from William's porch photos:
+// - masonry sill (opening.sill_type 'masonry', N6): unpainted rowlock sill, sloped out past the brick face; flat brick inside
+const MASONRY_SILLS = { depth: 4 / 12, drop: 1.5 / 12, proud: 1.5 / 12, ext: 2 / 12, joint: 3.75 / 12 };
+// - north corner: the brick wall W3 runs to the carport face and its end reads as brick; the dining/carport wall W4's lap
+//   siding stops against it at a white 1x corner board, at W4's end (the brick's inside face, in the export)
+const BRICK_CORNER = { brickWall: 'W3', sidingWall: 'W4', board: 3.5 / 12 };
+// South-line block wall (survey + William 2026-11-01): piers drawn as solid squares with a 3" flat cap, slightly
+// overhanging; the export adds the west section William described (site.block_wall_add, not on the survey).
+const BLOCK_WALL = { pierMax: 2.0, cap: 3 / 12, capOver: 1 / 12 };   // the west section comes from the export (site.block_wall_add)
+// Front porch and carport framing (William's photos, 2026-10-31).
+// Porch: open lean-to framing. White 2x6 rafters ~24" o.c. slope from the brick wall (on a white ledger) over a white
+// beam on the 4x4 posts and on ~3' to a white fascia; dark-stained T&G decking above. The main roof's soffit doesn't
+// show under it.
+const PORCH = {
+  rafterW: 1.5 / 12, rafterD: 5.5 / 12, spacing: 2.0, deck: 0.12,
+  beamX: 59.605, beamW: 3.5 / 12, beamD: 7.25 / 12, fasciaD: 7.25 / 12,
+  beamTopAboveSlab: 8 + 2 / 12,   // 4x8 beam: top 8'-2" above the porch slab (William 2026-10-31)
+  posts: ['C11', 'C12', 'C13', 'C14'],
+};
+// Carport: flat stained T&G ceiling at 8'-0" (boards running toward the street), dropped beams along the column side and
+// across the street end: stained vertical boards inside; outside, the house's top course of lap siding runs continuous
+// around them (beam 8" deep so its bottom falls on a siding course line). The brick columns stop under the beam.
+const CARPORT = {
+  // Heights from the house floor (William): the outside lap board bottoms on the siding course line at ~7'-4"; the beam
+  // itself sits 1" higher inside the lap (the lap hangs 1" below as a drip).
+  // Ceiling 8'-0" above the floor, as inside. Beam bottom 11-1/2" below the ceiling; its outside lap is notched to hang to
+  // 12" below the ceiling (1/2" below the beam), on its own line, not the wall's course pattern (William).
+  room: 'Carport', boardW: 5.5 / 12, lapBottom: 8 - 12 / 12, beamUp: 0.5 / 12,
+  // The beams bear on the masonry: north beam over C9 / C10, wrapping the front (east) face of C10, then back south along
+  // the brick line to the front brick wall W3. East of that the typical roof soffit fills in; the wood ceiling stops.
+  beams: [ { a: [39.615, 77.395], b: [56.215, 77.395], w: 0.67, out: 1 },
+           { a: [55.88, 66.75], b: [55.88, 77.73], w: 0.67, out: -1 } ],    // out = side of a->b's left normal that faces outside
+  ceilingMaxX: 56.215,
+  columns: ['C9', 'C10'],
+};
+// Pocket doors: opening.pocket 'a' | 'b' = which end of the opening the pocket is at; the leaf is parked in the wall
+// with its edge showing at the jamb. (pocket true = a pocket slider: one clear pane.)
+// Interior trim (William 2026-11-01): window / slider casing to match the interior door casing, 4" wall base.
+const INTERIOR_TRIM = { casing: 1.5 / 12, proud: 0.5 / 12, base: 4 / 12, baseProud: 0.5 / 12 };
+const ANODIZED_DOORS = ['K2-D1', 'K2-D2'];   // new kitchen doors: anodized aluminum frames like the windows
+// Kitchen glass-wall columns (aluminum `columns` in the export, e.g. the 5" corner column K2-CL1): slab to header. Where
+// one stands, the wall stub around it is only 2" aluminum door/slider frame members, so it reads as a clean square.
+
+// Studio door D32 (photos 2026-10-31): forest green both sides; upper lite with an X + diamond lattice over
+// a mid rail, lower panel with an X brace in a square frame.
+const STUDIO_DOOR = { id: 'D32', midRail: 3.25, muntin: 1.25 / 12, brace: 3 / 12 };
+// South courtyard utilities (photos 2026-10-31; positions and sizes by eye): on the master bedroom's south wall W1
+// between N1 and the hall bath window, and the mini-split against the studio's east wall W43 north of D32.
+// Boxes: x0, y0, x1, y1 in plan; z0, z1 above the ground under it (g) or the main floor (wall-mounted); material.
+const UTILITIES = [
+  { name: 'AC condenser pad', box: [43.0, 17.55, 45.9, 19.95], z: [0, 0.25], g: 1, m: 'concrete' },
+  { name: 'AC condenser', box: [43.15, 17.7, 45.75, 19.8], z: [0.25, 2.9], g: 1, m: 0x34373a },
+  { name: 'condenser top', box: [43.15, 17.7, 45.75, 19.8], z: [2.9, 3.05], g: 1, m: 'aluminum' },
+  { name: 'mini-split pad', box: [36.25, 17.4, 37.6, 20.1], z: [0, 0.15], g: 1, m: 'concrete' },
+  { name: 'mini-split condenser', box: [36.3, 17.5, 37.4, 20.0], z: [0.15, 2.25], g: 1, m: 'appliance_white' },
+  { name: 'line set', box: [43.75, 19.8, 43.9, 20.46], z: [0.3, 0.45], g: 1, m: 'iron' },
+  { name: 'electric meter', box: [42.95, 20.25, 43.6, 20.46], z: [4.3, 5.5], m: 'aluminum' },
+  { name: 'disconnect', box: [44.1, 20.2, 44.85, 20.46], z: [3.6, 5.3], m: 'aluminum' },
+  { name: 'panel', box: [45.5, 20.25, 45.95, 20.46], z: [4.6, 5.4], m: 'aluminum' },
+  { name: 'service panel', box: [46.6, 20.22, 47.75, 20.46], z: [4.2, 5.9], m: 'aluminum' },
+  { name: 'junction box', box: [41.4, 20.3, 42.15, 20.46], z: [3.4, 4.0], m: 'aluminum' },
+  { name: 'service riser', box: [44.0, 20.38, 44.12, 20.46], z: [5.3, 7.4], m: 'aluminum' },
+];
+
+// New kitchen walls, lanai side (William 2026-10-31): 1/2" anodized thresholds under the new doors; under K2-S3's sill
+// lap siding, stopped by a white 1x trim under the sill and at the west post; a white trim board at the east end over
+// the old siding; the post between K2-S3 and the French door K2-D1 wrapped in anodized aluminum.
+const KITCHEN_WALL = { threshold: 0.5 / 12, board: 3.5 / 12, alumPosts: [['K2-W1', 'start'], ['K2-W3', 'end']], endTrim: { wall: 'K2-W1', opening: 'K2-S3' } };
+// Hall-side bookcase H10d-BK1: wood, shelves at these heights (2nd from the bottom is a bench), dividers recessed at the kick.
+const BOOKCASE_SHELVES = [[0.33, 0.4], [1.45, 1.58], [4.9, 4.97], [6.05, 6.12]];
+// Living room built-in K15: top flush with the 19" window sill, on a 4" toe kick; wall-mounted TV centered on the wall above (75", assumed).
+// Dining table T1: two aluminum columns (sizes assumed).
+const DINING_TABLE = { id: 'T1', columns: 2, size: 0.75, spacing: 4.0 };
+// Dining chairs T2 (William's photo 2026-11-01): light maple armchairs, tapered legs, open arms on the front legs, tan
+// upholstered seat, woven (basketweave) wood back between tall back posts. Back = the side away from the table.
+const DINING_CHAIRS = { id: 'T2', table: 'T1', wood: 0xd7b88b, seat: 0xc4a27a, leg: 1.5 / 12, seatTop: 1.6, armTop: 2.2,
+  backTop: 2.9, weave: 5 };
+// Booth K2-C3: upholstered back on the outer strip (the export's inner line), to 36" (assumed).
+const BOOTH_BACK = { id: 'K2-C3', height: 3.0 };
+
+// Built-up exterior materials, in feet.
+const CLAD = {
+  lapExposure:  8/12,    // lap siding: 8" edge to edge (William); 12 courses from the slab to the 8'-0" ceiling
+  lapButt:      0.6/12,  // thickness at the bottom edge of each board
+  lapTop:       0.15/12, // thickness at the top (covered by the board above)
+  lapShadow:    0.375/12, // shadow band under each board's butt edge (drawn, so the courses read in soft light)
+  lapStart:     0,       // bottom of the first course: on the floor slab (William)
+  slabProud:    0.003,   // the floor slab's edge shows below the brick and siding: flush, painted white (a hair proud only to avoid flicker)
+  brickCourse:  3.5/12,  // long cement brick at the front door wall: 3.5" course height, joint to joint (William)
+  brickLength:  16.5/12, // 16.5" unit length, joint to joint (William)
+  brickJoint:   0.375/12,// mortar joint
+  brickRecess:  0.25/12, // joints struck back from the brick face
+  postWidth:    0.375,   // new kitchen window-wall posts (4-1/2")
+  porchPitch:   1.75/12, // front porch lean-to, a little shallower than the main roof (assumed)
+  porchThick:   0.5,     // porch roof: rafters + deck, exposed underneath
+  frame:        2/12,    // anodized aluminum window / slider frame, face width and depth
+  // casing around openings in lap-sided walls (William): a 1.5" flat trim inset next to the opening, then a 1x turned
+  // perpendicular to the wall (its 3/4" edge shows, standing out from the siding)
+  trimInset:    1.5/12,  // flat inset trim, face width
+  finThick:     0.75/12, // the perpendicular 1x
+  finDepth:     3.5/12,  // how far the 1x stands out from the sheathing (assumed a 1x4)
+  trimThick:    0.75/12, // trim posts and covers: 3/4" proud of the siding
+  doorStile:    4.5/12,  // full-lite exterior doors: stiles and top rail
+  doorBottom:   9/12,    // full-lite exterior doors: bottom rail
+  doorThick:    1.75/12,
+};
+
+// ---------------------------------------------------------------------------
+// KITCHEN (William 2026-10-30): flush-face cabinets, no visible hardware, joints shown; all base cabinets 3 drawers;
+// 1-1/4" quartz tops; stainless counter-depth fridge (two doors over two drawers); his black 32" glass induction cooktop
+// with a stainless 30" oven in the base cabinet below it (kept together, pantry untouched);
+// stainless single-bowl sink. Runs come from the export's casework; edge types per polygon edge (v[i] -> v[i+1]):
+// f = front (drawers/doors, toe kick), e = finished end (flush panel), w = against a wall or the booth.
+const KITCHEN = {
+  counterTop: 3.0, quartz: 1.25 / 12, overhang: 1 / 12, kick: 4 / 12, kickDepth: 3 / 12, joint: 0.125 / 12,
+  drawerSplits: [0.38, 0.76],            // 3 drawers: two deep below, a shallower top drawer
+  runs: [
+    { id: 'K2-C1', poly: 'fill', types: 'wffwewww', kind: 'base', maxW: 3, wood: true },                     // cooking wall (from the W9 stub K2-W4) + east run; along the pass-through the bases run through the old W21 slot, back (e) = the wood face seen from the dining room
+    { id: 'K2-C6', poly: 'fill', types: 'efww', kind: 'base', maxW: 3, wood: true },                         // under the slider K2-S3, to the W9 stub (2026-11-01)
+    { id: 'K2-C2', poly: [[28.33, 51.52], [37.19, 51.52], [37.19, 54.52], [37.19, 58.41], [35.5, 58.41], [35.5, 54.52], [28.33, 54.52]],
+      types: 'fefewwe', kind: 'base', maxW: 3, sink: 'K2-A4', wood: true },                                    // island + side counter
+    { id: 'A1', poly: 'line0', types: 'wwef', kind: 'tall', maxW: 2, filler: true, wood: true },   // pantry: to its export `height` (the ceiling), less a 2" filler
+    { id: 'U1', poly: 'line0', types: 'wweffe', kind: 'upper', maxW: 1.5, wood: true },                          // uppers
+    { id: 'A2', poly: [[40.6875, 51.4883], [42.6875, 51.4883], [42.6875, 54.155], [40.6875, 54.155]], types: 'wwwf', kind: 'upper', bottom: 6.0, maxW: 1.5, wood: true },   // over the refrigerator (William 2026-11-01)
+  ],
+  zones: [ { id: 'K2-A5', type: 'panel' }, { id: 'K2-A6', type: 'ss' }, { id: 'K2-A7', type: 'panel' }, { id: 'A3', type: 'oven' } ],
+  range: { id: 'A3', width: 32 / 12 },   // cooktop width; the export's "range" A3 (drawn 30") marks its place
+  oven: { width: 30 / 12, height: 28.5 / 12 },
+  microwave: { width: 30 / 12, height: 16.5 / 12, depth: 15 / 12 },   // stainless over-the-range hood/microwave, under the uppers   // stainless wall oven under the cooktop, top just under the quartz
+  fridge: { id: 'A2', height: 70 / 12, doorsFrom: 30 / 12 },
+  sinkDepth: 9 / 12,
+};
+// Baths and closets, same treatment (William 2026-10-30): vanities are flush 3-drawer bases with 1-1/4" quartz at 34",
+// white undermount basins and faucets; wardrobes (IKEA 2' modules), linen and filler are flush tall cabinets with doors.
+// `front` = which side of the element's rectangle faces the room (N/S/E/W; '-' = blind corner module).
+const WARDROBE_H = 7.75;   // ~93" (IKEA PAX height), toe kick included
+KITCHEN.runs.push(
+  { id: 'H10a-T7', front: 'E', kind: 'base', maxW: 2.5, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain', mirror: true },   // hall bath
+  { id: 'BA1-V1', front: 'E', kind: 'base', maxW: 2.4, top: 34 / 12, sinkLines: [1, 2], basin: 'porcelain' },   // M. Bath (window above: no mirror)
+  { id: 'H10b-LN1', front: 'N', kind: 'tall', maxW: 1.25, height: 7.0 },                                            // linen
+  { id: 'H10d-CF1', front: 'W', kind: 'tall', maxW: 1, height: WARDROBE_H },                                        // M. Closet filler
+  ...[['H10b-CM1', '-'], ['H10b-CM2', 'W'], ['H10b-CM3', 'W'], ['H10b-CM4', 'W'], ['H10b-CM6', 'S'], ['H10b-CM7', 'S'], ['H10b-CM8', 'S'],
+      ['H10-CL4a', 'E'], ['H10-CL4b', 'E'], ['H10a-CL4c', 'E'],
+      ['H10a-CN1', 'N'], ['H10a-CN2', 'N'], ['H10a-CN3', 'N'], ['H10a-CN4', 'N'],
+      ['H10a-CS1', 'S'], ['H10a-CS2', 'S'], ['H10a-CS3', 'S'], ['H10a-CS4', 'S']]
+    .map(([id, front]) => ({ id, front, kind: 'tall', maxW: 2, height: WARDROBE_H, edgeJoints: true })),   // one flush door per 2' box, joints on the box edges (William 2026-11-01)
+);
+const BATH = {
+  tubs: [{ id: 'F6', inner: 1, spout: 'E' }, { id: 'H10-T1', inner: 1, spout: 'W' }],   // alcove tubs, 20" rim
+  tubRim: 20 / 12,
+  showers: [{ id: 'F3', open: 'W', head: 'N' }],   // plumbing walls: shower north, tub east (William 2026-11-01)                                         // M. Bath: glass on the open side
+  toilets: [{ id: 'F4', back: [34.67, 38.39], dir: [0, 1] }, { id: 'H10a-T2', back: [46.53, 30.15], dir: [1, 0] }],
+  laundry: [{ id: 'H10a-LW', front: 'N' }, { id: 'H10a-LD', front: 'N' }],             // front-load washer + dryer, 38-1/2" tall
+  bookcase: { id: 'H10d-BK1', open: 'E', height: 8.0 },   // to the ceiling (William 2026-11-01)                                  // hall-side open shelving, 3 bays
+};
+const KITCHEN_HANDLED = new Set(['K2-C1', 'K2-C6', 'K2-C2', 'K33', 'A1', 'A2', 'A3', 'U1', 'K2-A4', 'K2-A5', 'K2-A6', 'K2-A7',
+  ...KITCHEN.runs.map(r => r.id), ...BATH.tubs.map(t => t.id), ...BATH.showers.map(t => t.id), ...BATH.toilets.map(t => t.id),
+  ...BATH.laundry.map(t => t.id), BATH.bookcase.id]);
+
+// Chimney top above the roof (William's photo); overall height is HEIGHTS.chimney.
+const CHIMNEY_TOP = {
+  capThick: 0.3,        // concrete cap slab (estimated)
+  capOverhang: 0.4,     // past the brick on every side (estimated)
+  openingHeight: 1.0,   // the openings between the corner piers (estimated)
+  pierU: 16.5 / 12,     // corner piers: one long brick along the long side ...
+  pierV: 8 / 12,        // ... by 8" on the short side
+  flue: 0.75,           // metal flue liner showing inside
+};
+
+// Grill (William's lanai photo): black cabinet base with two doors between the brick legs, black firebox + grate at the
+// plinth top with tan firebrick coping, tan firebrick back panel, black pyramid hood rising into the chimney. Feet above
+// the lanai floor; sizes estimated from the photo.
+const GRILL = {
+  baseTop: 2.2,        // top of the door cabinet / bottom of the firebrick band under the grill box
+  hoodBottom: 56/12,   // bottom of the hood above the slab (William)
+  hoodSkirt: 4/12,     // vertical "eave" band
+  hoodHeight: 22/12,   // overall, skirt + pyramid
+  hoodWidth: 46/12,    // footprint 46" wide x 25" deep, back against the chimney face
+  hoodDepth: 25/12,
+  hoodTopWidth: 12/12, // flat top of the pyramid, against the chimney (William)
+  backPanel: [3.4, 5.4],
+};
+
+// Furniture / casework heights, matched in order against element name (first match wins).
+// solid: 'largest' = biggest closed outline only, 'all' = every closed outline, 'none' = linework only.
+const ELEMENT_RULES = [
+  { re: /pocket door/i,                         solid: 'skip' },   // drawn as a real leaf (opening.pocket)
+  { re: /upper cabinets/i,                      z0: () => HEIGHTS.upperBottom, z1: () => HEIGHTS.upperTop, color: 'cabinet' },
+  { re: /wardrobe|pantry|refrigerator|linen|filler|bookcase/i, z0: 0, z1: () => HEIGHTS.tall, color: 'cabinet' },
+  { re: /sink|dishwasher|ice maker|trash/i,     solid: 'none', at: () => HEIGHTS.counter },
+  { re: /range|washer|dryer/i,                  z0: 0, z1: () => HEIGHTS.counter + 0.03, color: 'appliance', proud: true },
+  { re: /built-in \(living/i,                  z0: 0, z1: 19 / 12, color: 'cabinet', kick: true },   // top flush with the 19" living sills
+  { re: /counter|island|built-in/i,             z0: 0, z1: () => HEIGHTS.counter, color: 'counter' },
+  { re: /booth/i,                               z0: 0, z1: 1.5, color: 'upholstery', kick: true },
+  { re: /chairs/i,                              z0: 0, z1: 1.5, color: 'wood', solid: 'all' },
+  { re: /table/i,                               z0: 2.33, z1: 2.5, color: 'wood', pedestal: true },
+  { re: /bed/i,                                 z0: 0, z1: 2.0, color: 'bed' },
+  { re: /nightstand/i,                          z0: 0, z1: 2.0, color: 'wood' },
+  { re: /tub/i,                                 z0: 0, z1: 1.67, color: 'porcelain' },
+  { re: /shower/i,                              z0: 0, z1: 0.25, color: 'porcelain' },
+  { re: /wc|toilet/i,                           z0: 0, z1: 1.33, color: 'porcelain' },
+  { re: /vanity/i,                              z0: 0, z1: 2.83, color: 'counter' },
+  { re: /shed/i,                                z0: () => HEIGHTS.foundation, z1: () => HEIGHTS.shed, color: 'wall' },
+  { re: /planter/i,                             z0: 0, z1: 1.5, color: 'planter' },
+  { re: /casework/i,                            solid: 'none' },
+];
+
+// ---------------------------------------------------------------------------
+const COLORS = {
+  wall: 0xf3f1ec, newwall: 0xe7a46e, floor: 0xe6e0d4, concrete: 0xbfbbb3,
+  polished: 0xcfcac2, terrazzo: 0xdcd6cb, shingle: 0x6e7276, membrane: 0xc9c9c4, trim: 0xf7f7f4,
+  grass: 0x8fae74, glass: 0x9ec9e2, screen: 0x3a4148, post: 0xf6f6f4, cabinet: 0xfafafa, counter: 0xd9d4ca,
+  appliance: 0xb8bcc0, wood: 0xb08a63, bed: 0xe9e5dd, upholstery: 0x8a9a8f, porcelain: 0xfdfdfd,
+  planter: 0x7f9467, door: 0xf7f5f0, beam: 0xe9e6df, line: 0x4a4f55, cut: 0x2b2f33,
+  // siding: warm light grey (photos); trim/brick stay white
+  quartz: 0xefede8, siding: 0xece9e3, lapShadow: 0x9e998e, slabEdge: 0xf3f1ec, deckStain: 0x4b3526, carportWood: 0x8a5d3b, sillGrey: 0xf2f0ea, caseCut: 0x8d8a84, ss: 0xc9ccce, appliance_white: 0xf1f1ef, showerFloor: 0xd9d7d1, rangeBlack: 0x1d1d1f, joint: 0x8f8b84,
+  bark: 0x6b5641, leaves: 0x5d7a45, pine: 0x4f6b3c, palm: 0x6f8f4a, fence: 0xece9e1, blockwall: 0xd9d5cc,
+  mulch: 0x6e4f36, foliage: 0x3f6a33, gravelLs: 0xcfc6b4, shell: 0xebe5d6, turf: 0x5f9a45, deckLs: 0x9a7552, rock: 0x8f8c86, pool: 0x2f7fb5,
+  soil: 0x7d6e58, asphalt: 0x5a5d61, iron: 0x262624, firebrick: 0xd9b46a, mortar: 0xcfcac0, brick: 0xf7f5f0, aluminum: 0xd6d9dc, forest: 0x2c4a36,
+};
+const mats = {};
+function mat(key, extra = {}) {
+  const k = key + JSON.stringify(Object.keys(extra));
+  if (!mats[k]) mats[k] = new THREE.MeshStandardMaterial({ color: COLORS[key] ?? key, roughness: 0.85, ...extra });
+  return mats[k];
+}
+const glassMat = new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false });
+const frostMat = new THREE.MeshStandardMaterial({ color: 0xeef2f4, transparent: true, opacity: 0.85, roughness: 1, side: THREE.DoubleSide });
+const aluMat = new THREE.MeshStandardMaterial({ color: 0xd6d9dc, metalness: 0.15, roughness: 0.3 });   // clear anodized: light silver (William)
+const screenMat = new THREE.MeshStandardMaterial({ color: COLORS.screen, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+const lineMat = new THREE.LineBasicMaterial({ color: COLORS.line });
+const siteMat = new THREE.LineBasicMaterial({ color: 0x6b4a2b });
+const setbackMat = new THREE.LineDashedMaterial({ color: 0xb03a2e, dashSize: 1.5, gapSize: 1 });
+const dripMat = new THREE.LineDashedMaterial({ color: 0x3f5f2c, dashSize: 1, gapSize: 0.8 });
+const pavementLineMat = new THREE.LineBasicMaterial({ color: 0x3d4146 });
+const swaleMat = new THREE.LineDashedMaterial({ color: 0x2f6f9f, dashSize: 2, gapSize: 1 });
+const contourMat = new THREE.LineBasicMaterial({ color: 0x6a4f2a, transparent: true, opacity: 0.55 });
+const contourMajorMat = new THREE.LineBasicMaterial({ color: 0x5a3e1c });
+
+// Procedural cladding textures. UVs are in feet (along the wall, height), so `repeat` = 1 / tile size in feet.
+function canvasTex(w, h, draw, tileW, tileH) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / tileW, 1 / tileH);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+const TEX = {
+  lap: canvasTex(64, 128, (g, w, h) => {      // 8" lap siding (keynote 02), ~7" exposure: one course per tile
+    const grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, '#d9d7d0'); grd.addColorStop(0.12, '#f4f2ec'); grd.addColorStop(1, '#ffffff');
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#b9b6ae'; g.fillRect(0, 0, w, 5);
+  }, 4, 7 / 12),
+  brickStack: canvasTex(64, 54, (g, w, h) => {   // stacked bond (carport columns): horizontal joints only, 3.5" courses
+    g.fillStyle = '#f6f4ef'; g.fillRect(0, 0, w, h); g.fillStyle = '#d8d5cd'; g.fillRect(0, 0, w, 3);
+  }, 1, 3.5 / 12),
+  brick: canvasTex(256, 108, (g, w, h) => {  // painted long cement brick, 16.5" x 3.5" joint to joint, running bond
+    g.fillStyle = '#d8d5cd'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#f6f4ef';
+    const j = 6, ch = h / 2;
+    g.fillRect(j / 2, j / 2, w - j, ch - j);
+    g.fillRect(-w / 2 + j / 2, ch + j / 2, w - j, ch - j); g.fillRect(w / 2 + j / 2, ch + j / 2, w - j, ch - j);
+  }, 16.5 / 12, 7 / 12),
+  stucco: canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = '#f1efe9'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2500; i++) { const v = 228 + Math.random() * 20 | 0; g.fillStyle = `rgb(${v},${v - 2},${v - 6})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
+  }, 3, 3),
+};
+// Terrazzo (William's photo, tape for scale): off-white matrix packed with small white / light-grey chips (1/8"-1/4") and
+// black / dark-green chips (mostly 1/4"-1/2", a few to 3/4", ~25% cover). A 24" tile at ~21 px per inch, seeded so it
+// looks the same on every load; UVs on floors are in feet, so repeat = 1/2.
+const TERRAZZO = (() => {
+  const N = 512, PPI = N / 24, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'); let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.fillStyle = '#e9e5df'; g.fillRect(0, 0, N, N);
+  const chip = (sizeIn, color) => {
+    const x = rnd() * N, y = rnd() * N, r = sizeIn * PPI / 2, k = 5 + (rnd() * 3 | 0), a0 = rnd() * 6.28;
+    g.fillStyle = color; g.beginPath();
+    for (let i = 0; i < k; i++) { const a = a0 + i / k * 6.28 + (rnd() - 0.5) * 0.6, rr = r * (0.55 + rnd() * 0.6);
+      g[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    g.closePath(); g.fill();
+  };
+  const draw = (count, size, colors) => { for (let i = 0; i < count; i++) chip(size[0] + rnd() * (size[1] - size[0]), colors[rnd() * colors.length | 0]); };
+  draw(9000, [0.08, 0.25], ['#f6f4f0', '#ffffff', '#d9d5cf', '#cfcbc4', '#e2ded6']);       // light chips
+  draw(1500, [0.25, 0.5], ['#141414', '#1c1e1d', '#22302a', '#2b3a33', '#0e0f0f']);         // dark chips
+  draw(120, [0.5, 0.75], ['#141414', '#1f2b25', '#0e0f0f']);                                // a few larger
+  draw(500, [0.15, 0.3], ['#9a9c98', '#7d827e']);                                           // mid-grey
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(0.5, 0.5); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
+})();
+const cladMat = {};
+function cladding(kind, highlight) {
+  const k = kind + highlight;
+  // 'brickGrey' = the same brick, unpainted natural grey (chimney and grill, William's photos)
+  if (!cladMat[k]) cladMat[k] = new THREE.MeshStandardMaterial({ map: TEX[kind] || TEX[/^brick/.test(kind) ? 'brick' : kind],
+    color: highlight ? COLORS.newwall : kind === 'brickGrey' ? 0x9b9a96 : kind === 'brickPale' ? 0xcdccc7 : 0xffffff, roughness: 0.9 });
+  return cladMat[k];
+}
+
+// ---------------------------------------------------------------------------
+// Renderer, cameras, controls. The model is built in plan coordinates
+// (x east, y north, z up) inside `model`, which is rotated so z is up on screen.
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: 0, left: 0, pointerEvents: 'none' });
+view.appendChild(labelRenderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9eef2);
+const persp = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 3000);
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.5, 3000);
+let camera = persp;
+const pControls = new OrbitControls(persp, renderer.domElement);
+pControls.enableDamping = true;
+pControls.maxPolarAngle = Math.PI / 2 - 0.02;
+const oControls = new OrbitControls(ortho, renderer.domElement);
+oControls.enableRotate = false;
+oControls.screenSpacePanning = true;
+oControls.enabled = false;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xc4c2b8, 1.1)   /* light ground bounce so ceilings and soffits read white */);
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+Object.assign(sun.shadow.camera, { left: -100, right: 100, top: 100, bottom: -100, near: 1, far: 500 });
+sun.shadow.bias = -0.0005;
+scene.add(sun, sun.target);
+
+const model = new THREE.Group();
+model.rotation.x = -Math.PI / 2;   // plan (x, y, z-up) -> three (x, z-up, -y)
+scene.add(model);
+const P = (x, y, z = 0) => new THREE.Vector3(x, z, -y); // plan point -> world
+
+// ---------------------------------------------------------------------------
+// Geometry helpers (plan coordinates)
+const clean = pts => {
+  const p = pts.map(q => [q[0], q[1]]);
+  if (p.length > 2 && Math.hypot(p[0][0] - p.at(-1)[0], p[0][1] - p.at(-1)[1]) < 1e-6) p.pop();
+  return p;
+};
+const flat2pts = arr => { const o = []; for (let i = 0; i + 1 < arr.length; i += 2) o.push([arr[i], arr[i + 1]]); return o; };
+const isClosed = pts => pts.length >= 4 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1e-3;
+const area = pts => { let s = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; };
+const centroid = pts => { const n = pts.length; return [pts.reduce((s, p) => s + p[0], 0) / n, pts.reduce((s, p) => s + p[1], 0) / n]; };
+function inside(p, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+function edgeDist(p, poly) {
+  let d = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j], b = poly[i], dx = b[0] - a[0], dy = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+    d = Math.min(d, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy));
+  }
+  return d;
+}
+
+// Extrude a plan polygon from z0 to z1.
+function prism(pts, z0, z1, material, { shadow = true, holes = [] } = {}) {
+  pts = clean(pts);
+  if (pts.length < 3 || z1 - z0 < 1e-4 || Math.abs(area(pts)) < 1e-6) return null;
+  const shape = new THREE.Shape(pts.map(p => new THREE.Vector2(p[0], p[1])));
+  for (const h of holes) shape.holes.push(new THREE.Path(clean(h).map(p => new THREE.Vector2(p[0], p[1]))));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: z1 - z0, bevelEnabled: false });
+  const m = new THREE.Mesh(geo, material);
+  m.position.z = z0;
+  m.castShadow = shadow; m.receiveShadow = true;
+  return m;
+}
+// Re-map a mesh's UVs to (distance along a wall, height) in feet, so cladding courses line up.
+function wallUV(mesh, ax, ay, dx, dy) {
+  const pos = mesh.geometry.attributes.position, uv = mesh.geometry.attributes.uv, z0 = mesh.position.z;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - ax) * dx + (pos.getY(i) - ay) * dy, pos.getZ(i) + z0);
+  uv.needsUpdate = true;
+  return mesh;
+}
+// Polylines (flat arrays) at height z.
+function polylines(lines, z, material = lineMat) {
+  const v = [];
+  for (const l of lines) for (let i = 0; i + 3 < l.length; i += 2) v.push(l[i], l[i + 1], z, l[i + 2], l[i + 3], z);
+  if (!v.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  return new THREE.LineSegments(g, material);
+}
+// Clip polygon (in wall-local u,v) to lo <= u <= hi.
+function clipU(poly, lo, hi) {
+  const clip = (pts, keep, edge) => {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length], ka = keep(a), kb = keep(b);
+      if (ka) out.push(a);
+      if (ka !== kb) { const t = (edge - a[0]) / (b[0] - a[0]); out.push([edge, a[1] + t * (b[1] - a[1])]); }
+    }
+    return out;
+  };
+  let p = poly;
+  if (lo > -Infinity) p = clip(p, q => q[0] >= lo, lo);
+  if (p.length && hi < Infinity) p = clip(p, q => q[0] <= hi, hi);
+  return p;
+}
+// A thin vertical panel along a plan segment.
+function panel(p0, p1, z0, z1, thick, material) {
+  const dx = p1[0] - p0[0], dy = p1[1] - p0[1], L = Math.hypot(dx, dy);
+  if (L < 1e-4 || z1 - z0 < 1e-4) return null;
+  const nx = -dy / L * thick / 2, ny = dx / L * thick / 2;
+  return prism([[p0[0] + nx, p0[1] + ny], [p1[0] + nx, p1[1] + ny], [p1[0] - nx, p1[1] - ny], [p0[0] - nx, p0[1] - ny]], z0, z1, material);
+}
+// Triangles (arrays of [x,y,z]) as one flat-shaded mesh.
+function triMesh(tris, material) {
+  const v = [];
+  for (const t of tris) for (const p of t) v.push(...p);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, material); m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
+const fan = poly => { const t = []; for (let i = 1; i + 1 < poly.length; i++) t.push([poly[0], poly[i], poly[i + 1]]); return t; };
+// Same as clipU, but on the v (across-the-wall) coordinate.
+const clipV = (poly, lo, hi) => clipU(poly.map(([u, v]) => [v, u]), lo, hi).map(([v, u]) => [u, v]);
+
+// Wall-local builders. `W` = { toXY, vext (exterior face v), sgn (+1 if outward is +v) }.
+// Quads are given as 4 local points [u, v, z]; returned as plan-coordinate triangles.
+function quadTris(W, q) {
+  const P = q.map(([u, v, z]) => { const [x, y] = W.toXY([u, v]); return [x, y, z]; });
+  return [[P[0], P[1], P[2]], [P[0], P[2], P[3]]];
+}
+// Modelled bevel lap siding over u0..u1, z0..z1, courses aligned from CLAD.lapStart.
+function lapSiding(W, u0, u1, z0, z1, material, start = CLAD.lapStart, e = CLAD.lapExposure) {
+  const tris = [], shade = [];   // shade: the underside of each board's butt edge + a thin shadow band below it
+  z0 = Math.max(z0, start);
+  const at = (cb, z) => W.vext + W.sgn * (CLAD.lapButt + (CLAD.lapTop - CLAD.lapButt) * (z - cb) / e);
+  for (let k = Math.floor((z0 - start) / e); ; k++) {
+    const cb = start + k * e, c0 = Math.max(cb, z0), c1 = Math.min(cb + e, z1);
+    if (cb >= z1) break;
+    if (c1 - c0 < 1e-4) continue;
+    const v0 = at(cb, c0), v1 = at(cb, c1), f = W.vext;
+    tris.push(...quadTris(W, [[u0, v0, c0], [u1, v0, c0], [u1, v1, c1], [u0, v1, c1]]));   // face
+    if (c0 === cb) shade.push(...quadTris(W, [[u0, f, c0], [u1, f, c0], [u1, v0, c0], [u0, v0, c0]]));   // butt edge
+    else tris.push(...quadTris(W, [[u0, f, c0], [u1, f, c0], [u1, v0, c0], [u0, v0, c0]]));
+    if (c1 === cb + e && c1 < z1) {   // shadow cast by the next board's butt onto the top of this one (~3/8")
+      const sb = Math.max(c0, c1 - CLAD.lapShadow), vs = at(cb, sb) + W.sgn * 0.002, vt = at(cb, c1) + W.sgn * 0.002;
+      shade.push(...quadTris(W, [[u0, vs, sb], [u1, vs, sb], [u1, vt, c1], [u0, vt, c1]]));
+    }
+    if (c1 === z1) tris.push(...quadTris(W, [[u0, v1, c1], [u1, v1, c1], [u1, f, c1], [u0, f, c1]]));
+    tris.push(...quadTris(W, [[u0, f, c0], [u0, v0, c0], [u0, v1, c1], [u0, f, c1]]));     // ends
+    tris.push(...quadTris(W, [[u1, f, c0], [u1, f, c1], [u1, v1, c1], [u1, v0, c0]]));
+  }
+  if (!tris.length) return null;
+  const g = new THREE.Group(); g.add(triMesh(tris, material));
+  if (shade.length) g.add(triMesh(shade, mat('lapShadow', { side: THREE.DoubleSide })));
+  return g;
+}
+// Modelled brick, running bond, on one face (`W.vext` = face of the brick, `W.sgn` = outward), recessed joints.
+function brickFace(W, u0, u1, z0, z1, uOrigin, material) {
+  const h = CLAD.brickCourse, L = CLAD.brickLength, j = CLAD.brickJoint / 2, r = CLAD.brickRecess, tris = [];
+  const vb = W.vext - W.sgn * r, vf = W.vext;   // back (at the joint) and face of the brick
+  for (let k = Math.floor(z0 / h); k * h < z1; k++) {
+    const b0 = Math.max(k * h + j, z0), b1 = Math.min((k + 1) * h - j, z1);
+    if (b1 - b0 < 1e-4) continue;
+    const off = uOrigin + (k % 2 ? L / 2 : 0);
+    for (let m = Math.floor((u0 - off) / L) - 1; off + m * L < u1; m++) {
+      const a0 = Math.max(off + m * L + j, u0), a1 = Math.min(off + (m + 1) * L - j, u1);
+      if (a1 - a0 < 1e-4) continue;
+      tris.push(...quadTris(W, [[a0, vf, b0], [a1, vf, b0], [a1, vf, b1], [a0, vf, b1]]));
+      tris.push(...quadTris(W, [[a0, vb, b0], [a1, vb, b0], [a1, vf, b0], [a0, vf, b0]]));
+      tris.push(...quadTris(W, [[a0, vf, b1], [a1, vf, b1], [a1, vb, b1], [a0, vb, b1]]));
+      tris.push(...quadTris(W, [[a0, vb, b0], [a0, vf, b0], [a0, vf, b1], [a0, vb, b1]]));
+      tris.push(...quadTris(W, [[a1, vb, b0], [a1, vb, b1], [a1, vf, b1], [a1, vf, b0]]));
+    }
+  }
+  return tris.length ? triMesh(tris, material) : null;
+}
+
+// A hip roof over an axis-aligned rectangle [x0,y0,x1,y1] (eave outline): roofing, fascia and soffit.
+// Overlapping blocks with the same pitch and eave make the valleys by themselves.
+function hipRoof(rect) {
+  const [x0, y0, x1, y1] = rect, W = x1 - x0, H = y1 - y0, h = Math.min(W, H) / 2;
+  const ze = HEIGHTS.eaveTop, zr = ze + HEIGHTS.roofPitch * h, zs = HEIGHTS.soffit;
+  const A = [x0, y0, ze], B = [x1, y0, ze], C = [x1, y1, ze], D = [x0, y1, ze];
+  let faces;
+  if (W >= H) {
+    const cy = (y0 + y1) / 2, R1 = [x0 + h, cy, zr], R2 = [x1 - h, cy, zr];
+    faces = [[A, B, R2, R1], [C, D, R1, R2], [D, A, R1], [B, C, R2]];
+  } else {
+    const cx = (x0 + x1) / 2, R1 = [cx, y0 + h, zr], R2 = [cx, y1 - h, zr];
+    faces = [[D, A, R1, R2], [B, C, R2, R1], [A, B, R1], [C, D, R2]];
+  }
+  const g = new THREE.Group();
+  g.add(triMesh(faces.flatMap(fan), ROOF_MAT || mat('shingle', { side: THREE.DoubleSide })));   // ROOF_MAT: cut out under the porch roof
+  const corners = [A, B, C, D], trim = [];
+  for (let i = 0; i < 4; i++) {
+    const p = corners[i], q = corners[(i + 1) % 4];
+    trim.push([[p[0], p[1], zs], [q[0], q[1], zs], [q[0], q[1], ze]], [[p[0], p[1], zs], [q[0], q[1], ze], [p[0], p[1], ze]]);
+  }
+  trim.push(...fan(corners.map(c => [c[0], c[1], zs])));   // soffit
+  g.add(triMesh(trim, SOFFIT_MAT || mat('trim', { side: THREE.DoubleSide })));
+  return g;
+}
+// Geometry of a lean-to: distance in from the low edge, top-of-roofing height, unit vectors along / across the low edge.
+// The porch roof plane is set by its beam (William 2026-10-31): 4x8 N-S beam, top 8'-2" above the porch slab; 2x6
+// rafters and the deck on top, sloping at CLAD.porchPitch down to the low edge and up toward the house.
+function porchBeamTop() {
+  const sf = (DATA?.surfaces || []).find(s => /front porch/i.test(s.name || '') && s.floor_z != null);
+  return (sf ? sf.floor_z : -4 / 12) + PORCH.beamTopAboveSlab;
+}
+function leanToFrame(l) {
+  const [p0, p1] = l.low_edge, L = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), ex = (p1[0] - p0[0]) / L, ey = (p1[1] - p0[1]) / L;
+  const nx = -ey, ny = ex, c = centroid(clean(l.poly)), sgn = Math.sign((c[0] - p0[0]) * nx + (c[1] - p0[1]) * ny) || 1;
+  const dist = p => sgn * ((p[0] - p0[0]) * nx + (p[1] - p0[1]) * ny);
+  const dB = dist([PORCH.beamX, p0[1]]), zB = porchBeamTop() + PORCH.rafterD + PORCH.deck;
+  const zAt = d => zB + CLAD.porchPitch * (d - dB);
+  return { p0, e: [ex, ey], n: [sgn * nx, sgn * ny], dist, zAt, zTop: p => zAt(dist(p)) };
+}
+// A box along a 3D line a->b (top edge centerline), w wide horizontally, d deep vertically.
+function box3(a, b, w, d, material) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), sx = -dy / L * w / 2, sy = dx / L * w / 2;
+  const c = (p, s, dz) => [p[0] + s * sx, p[1] + s * sy, p[2] + dz];
+  const A = [c(a, -1, 0), c(a, 1, 0), c(a, 1, -d), c(a, -1, -d)], B = [c(b, -1, 0), c(b, 1, 0), c(b, 1, -d), c(b, -1, -d)], t = [];
+  for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; t.push([A[i], B[i], B[j]], [A[i], B[j], A[j]]); }
+  t.push([A[0], A[1], A[2]], [A[0], A[2], A[3]], [B[0], B[2], B[1]], [B[0], B[3], B[2]]);
+  return triMesh(t, material);
+}
+
+// The porch roof (William 2026-10-31): a separate shed plane popped up above the main roof at a lower slope. It runs
+// from its low edge back toward the house until it dies into the main roof's plane, so a small vertical triangle closes
+// each end between the two roofs (from that line out to the main eave). Exposed rafters underneath.
+function leanTo(l) {
+  const F = leanToFrame(l), poly0 = clean(l.poly), D0 = Math.max(...poly0.map(F.dist));
+  const zMain = d => HEIGHTS.eaveTop + HEIGHTS.roofPitch * (d - l.meets);   // main roof plane, by distance from the low edge
+  const dz = (zMain(0) - F.zAt(0)) / (CLAD.porchPitch - HEIGHTS.roofPitch);   // where the two planes meet
+  const dTop = Math.max(D0, dz);
+  const poly = poly0.map(p => { const d = F.dist(p); return d > D0 - 1e-3 ? [p[0] + F.n[0] * (dTop - d), p[1] + F.n[1] * (dTop - d)] : p; });
+  const top = poly.map(p => [p[0], p[1], F.zTop(p)]), bot = poly.map(p => [p[0], p[1], F.zTop(p) - PORCH.deck]);
+  const sides = [];
+  for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; sides.push([bot[i], bot[j], top[j]], [bot[i], top[j], top[i]]); }
+  const g = new THREE.Group();
+  g.add(triMesh(fan(top), mat('shingle', { side: THREE.DoubleSide })));
+  g.add(triMesh(fan(bot), mat('carportWood', { side: THREE.DoubleSide })));   // natural-finish T&G decking, seen from below (William 2026-11-01)
+  g.add(triMesh(sides, mat('trim', { side: THREE.DoubleSide })));
+  // end triangles: on each end of the porch (perpendicular to the low edge), main eave line -> where the planes meet
+  const us = poly.map(p => (p[0] - F.p0[0]) * F.e[0] + (p[1] - F.p0[1]) * F.e[1]);
+  const at = (u, d, z) => [F.p0[0] + F.e[0] * u + F.n[0] * d, F.p0[1] + F.e[1] * u + F.n[1] * d, z];
+  const tris = [];
+  for (const u of [Math.min(...us), Math.max(...us)])
+    tris.push([at(u, l.meets, zMain(l.meets)), at(u, dTop, zMain(dTop)), at(u, l.meets, F.zAt(l.meets) - PORCH.deck)]);
+  g.add(triMesh(tris, mat('siding', { side: THREE.DoubleSide })));
+  // north end: closed in under the main roof, from the main soffit up to the main roof (William 2026-11-01)
+  const uN = Math.max(...us);
+  g.add(triMesh([[at(uN, l.meets, HEIGHTS.soffit), at(uN, D0, HEIGHTS.soffit), at(uN, D0, zMain(D0))], [at(uN, l.meets, HEIGHTS.soffit), at(uN, D0, zMain(D0)), at(uN, l.meets, zMain(l.meets))]], mat('trim', { side: THREE.DoubleSide })));
+  // T&G joints on the deck's underside, boards running along the porch
+  const v = [], uS = Math.min(...us);
+  for (let d = CARPORT.boardW; d < D0; d += CARPORT.boardW) v.push(...at(uS, d, F.zAt(d) - PORCH.deck - 0.004), ...at(uN, d, F.zAt(d) - PORCH.deck - 0.004));
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x5a3b24 })));
+  return g;
+}
+function flatRoof(poly, exposed = false) {
+  const g = new THREE.Group();
+  if (exposed) {   // exposed decking at the ceiling height, with a fascia band round the edge
+    g.add(prism(poly, HEIGHTS.ceiling, HEIGHTS.eaveTop - 0.05, mat('trim')));
+    const P = clean(poly);
+    for (let i = 0; i < P.length; i++) g.add(panel(P[i], P[(i + 1) % P.length], HEIGHTS.soffit, HEIGHTS.eaveTop + 0.1, 0.12, SOFFIT_MAT || mat('trim')));
+  } else {
+    g.add(prism(poly, HEIGHTS.soffit, HEIGHTS.ceiling, SOFFIT_MAT || mat('trim')));   // shows outside the walls only
+    g.add(prism(poly, HEIGHTS.ceiling, HEIGHTS.eaveTop - 0.05, mat('trim')));        // its underside is the ceiling inside
+  }
+  g.add(prism(poly, HEIGHTS.eaveTop - 0.05, HEIGHTS.eaveTop + 0.1, mat('membrane')));
+  return g;
+}
+
+// Offset each edge of a polygon outward by d[i] (edge i = v[i] -> v[i+1]) and rejoin the corners.
+function offsetPoly(poly, d) {
+  const n = poly.length, sg = Math.sign(area(poly)) || 1, lines = [];
+  for (let i = 0; i < n; i++) {
+    const a = poly[i], b = poly[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+    const nx = sg > 0 ? uy : -uy, ny = sg > 0 ? -ux : ux;
+    lines.push({ p: [a[0] + nx * d[i], a[1] + ny * d[i]], u: [ux, uy] });
+  }
+  return lines.map((l, j) => {
+    const k = lines[(j - 1 + n) % n], den = k.u[0] * l.u[1] - k.u[1] * l.u[0];
+    if (Math.abs(den) < 1e-9) return l.p;
+    const t = ((l.p[0] - k.p[0]) * l.u[1] - (l.p[1] - k.p[1]) * l.u[0]) / den;
+    return [k.p[0] + k.u[0] * t, k.p[1] + k.u[1] * t];
+  });
+}
+
+// A post's base: the highest floor under its center or any corner. Posts on a slab edge (lanai screen line, the kitchen
+// corner column) have their center just outside the room / slab polygon, which dropped them to the survey ground and
+// into the slab edge (z-fighting, William 2026-11-01).
+const columnBase = c => Math.max(floorAt(c.at), ...columnPoly(c).map(floorAt));
+// Plan outline of a column (center, w x d, angle).
+function columnPoly(c) {
+  const t = (c.angle || 0) * Math.PI / 180, ca = Math.cos(t), sa = Math.sin(t), hw = c.w / 2, hd = c.d / 2;
+  return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => [c.at[0] + x * ca - y * sa, c.at[1] + x * sa + y * ca]);
+}
+const kitchenColumns = D => D.columns.filter(c => c.material === 'aluminum');
+// Plan outlines of the kitchen's aluminum columns.
+function kitchenColumnPolys(D) { return kitchenColumns(D).map(columnPoly); }
+
+// Plan outlines of the existing lanai 4x4s: a kitchen glass-wall stub holding one (C5, C6) is just 2" aluminum frames
+// either side of the existing post (William: "just show the existing 4x4s").
+function postPolys(D) {
+  return D.columns.filter(c => c.material === 'wood').map(columnPoly);
+}
+
+// ---------------------------------------------------------------------------
+let DATA = null, ROOF = null, SURVEY = null;
+const opts = { roof: true, furn: true, labels: true, trees: true, terrain: true, contours: false, newwork: false, site: true, landscape: true, cut: Infinity,
+               wingFinish: 'lap', wingRoof: 'hip' };
+
+// ----- Survey ground: triangulated surface (model/survey.json, z relative to the main floor)
+const FAR_FIELD = -4.6;   // flat lawn beyond the surveyed area, just below the lowest shot
+function groundAt(x, y) {
+  if (!SURVEY || !opts.terrain) return HEIGHTS.grade;
+  const { v, tri } = SURVEY.ground;
+  for (const [i, j, k] of tri) {
+    const a = v[i], b = v[j], c = v[k];
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    const l1 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+    const l2 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+    const l3 = 1 - l1 - l2;
+    if (l1 >= -1e-6 && l2 >= -1e-6 && l3 >= -1e-6) return l1 * a[2] + l2 * b[2] + l3 * c[2];
+  }
+  return HEIGHTS.grade;
+}
+function terrainMesh() {
+  const { v, tri, surface, hull } = SURVEY.ground, pos = [], col = [], c = new THREE.Color();
+  const put = (p, hex) => { pos.push(p[0], p[1], p[2]); c.setHex(hex); col.push(c.r, c.g, c.b); };
+  tri.forEach(([i, j, k], n) => { const hex = COLORS[surface[n] === 'lawn' ? 'grass' : surface[n]]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
+  for (let e = 0; e < hull.length; e += 2) {   // skirt from the surveyed edge down to the far-field lawn
+    const a = v[hull[e]], b = v[hull[e + 1]], A = [a[0], a[1], FAR_FIELD], B = [b[0], b[1], FAR_FIELD];
+    for (const p of [a, b, B, a, B, A]) put(p, COLORS.soil);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide }));
+  m.receiveShadow = true;
+  return m;
+}
+// Contours every 6" of NAVD88 elevation; whole feet darker and labeled once.
+function contourLines() {
+  const { v, tri } = SURVEY.ground, FF = 10.91, out = [], segs = {};
+  const zs = v.map(p => p[2] + FF), lo = Math.ceil(Math.min(...zs) * 2) / 2, hi = Math.max(...zs);
+  for (let L = lo; L <= hi; L += 0.5) {
+    const z = L - FF, s = [];
+    for (const t of tri) {
+      const pts = [];
+      for (let e = 0; e < 3; e++) {
+        const a = v[t[e]], b = v[t[(e + 1) % 3]];
+        if ((a[2] - z) * (b[2] - z) < 0) { const f = (z - a[2]) / (b[2] - a[2]); pts.push([a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]); }
+      }
+      if (pts.length === 2) s.push(pts);
+    }
+    if (!s.length) continue;
+    const major = Math.abs(L - Math.round(L)) < 1e-6;
+    out.push(polylines(s.map(([p, q]) => [p[0], p[1], q[0], q[1]]), z + 0.05, major ? contourMajorMat : contourMat));
+    if (major && opts.labels) {   // label the segment nearest the house
+      const m = s.map(([p, q]) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]).sort((a, b) => Math.hypot(a[0] - 40, a[1] - 45) - Math.hypot(b[0] - 40, b[1] - 45))[0];
+      segs[L] = m;
+    }
+  }
+  for (const [L, m] of Object.entries(segs)) {
+    const div = document.createElement('div'); div.className = 'lbl contour'; div.textContent = `${(+L).toFixed(0)}'`;
+    const o = new CSS2DObject(div); o.position.set(m[0], m[1], groundAt(m[0], m[1]) + 0.3); out.push(o);
+  }
+  return out;
+}
+// A 3D polyline [[x,y,z],...] lifted a little off the ground.
+function line3(pts, lift, material) {
+  const v = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    v.push(a[0], a[1], (a[2] ?? groundAt(a[0], a[1])) + lift, b[0], b[1], (b[2] ?? groundAt(b[0], b[1])) + lift);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  const l = new THREE.LineSegments(g, material); if (material.isLineDashedMaterial) l.computeLineDistances();
+  return l;
+}
+
+const roomAt = p => DATA.rooms.find(r => !/shed/i.test(r.name) && inside(p, r.poly));
+const roomFloor = r => r.floor_z ?? 0;
+function floorAt(p) {
+  const r = roomAt(p);
+  if (r) return roomFloor(r);
+  const s = DATA.surfaces.find(s => !s.outline && inside(p, s.poly));
+  return s ? (s.floor_z ?? 0) : groundAt(p[0], p[1]);
+}
+// Window sill height (z) from SILLS, measured from the floor of the room it serves.
+function sillZ(o, sides) {
+  const rooms = sides.filter(Boolean);
+  const served = rooms.find(r => r.conditioned !== false) || rooms[0];
+  const base = served ? roomFloor(served) : 0;
+  if (o.sill != null) return base + o.sill;
+  const special = rooms.find(r => r.name === 'M. Bath' || r.name === 'Carport');
+  if (special) return base + SILLS.rooms[special.name];
+  return base + ((served && SILLS.rooms[served.name]) ?? HEIGHTS.sill);
+}
+
+function build() {
+  model.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.element) o.element.remove(); });
+  model.clear();
+  const D = DATA, cut = opts.cut;
+  const add = o => { if (o) model.add(o); return o; };
+  const capped = (z0, z1) => [z0, Math.min(z1, cut)];
+  const cutCap = pts => prism(pts, cut - 0.005, cut + 0.01, mat('cut'), { shadow: false });
+  const caseCap = pts => prism(pts, cut - 0.005, cut + 0.01, mat('caseCut'), { shadow: false });   // cut casework: lighter than walls
+  const label = (html, at, z, cls = '') => {
+    const div = document.createElement('div'); div.className = 'lbl ' + cls; div.innerHTML = html;
+    const o = new CSS2DObject(div); o.position.set(at[0], at[1], z); add(o);
+  };
+  const roofShown = opts.roof && cut >= HEIGHTS.ceiling;
+
+  // Ground: the survey's surface (with a skirt down to a far-field lawn), or a flat lawn at HEIGHTS.grade
+  const useSurvey = opts.terrain && SURVEY;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), mat('grass'));
+  ground.position.set(40, 45, useSurvey ? FAR_FIELD : HEIGHTS.grade); ground.receiveShadow = true;
+  ground.userData.ground = true; add(ground);
+  if (useSurvey) {
+    const terr = add(terrainMesh()); if (terr) terr.userData.ground = true;   // walk mode: not an obstacle
+    if (opts.contours) for (const o of contourLines()) add(o);
+    const L = SURVEY.lines;
+    for (const l of [...L.edge_of_pavement, ...L.top_of_bank]) add(line3(l.pts, 0.06, pavementLineMat));
+    for (const l of L.swale) add(line3(l.pts, 0.06, swaleMat));
+    if (!(opts.landscape && D.landscape)) for (const f of L.fence) for (let i = 0; i + 1 < f.pts.length; i++) {   // the site plan replaces the survey's fences
+      const a = f.pts[i], b = f.pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
+      add(panel(a, b, z0 - 0.3, Math.min(z0 + f.height, cut), 0.1, mat('fence')));
+    }
+    // Block wall on the south line: the survey draws each pier as four short sides. Group those into square piers (with a
+    // 3" flat cap); the long runs are the wall. William: the same section repeats once to the west on the same line
+    // (not on the survey), sharing the west pier.
+    const top0 = L.block_wall[0]?.top ?? 3.8, add2 = (D.site.block_wall_add || []).map(l => ({ pts: flat2pts(l), top: top0 }));   // + the export's addition
+    const segs = [...L.block_wall, ...add2].flatMap(w => w.pts.slice(1).map((b, i) => ({ a: w.pts[i], b, top: w.top })));
+    const short = segs.filter(s => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]) < BLOCK_WALL.pierMax), runs = segs.filter(s => !short.includes(s));
+    const piers = [];
+    for (const s of short) {
+      const m = BLOCK_WALL.pierMax, P = piers.find(P => [s.a, s.b].some(p => p[0] > P.x0 - m && p[0] < P.x1 + m && p[1] > P.y0 - m && p[1] < P.y1 + m));
+      const xs = [s.a[0], s.b[0]], ys = [s.a[1], s.b[1]];
+      if (P) Object.assign(P, { x0: Math.min(P.x0, ...xs), x1: Math.max(P.x1, ...xs), y0: Math.min(P.y0, ...ys), y1: Math.max(P.y1, ...ys) });
+      else piers.push({ x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), top: s.top });
+    }
+    for (const r of runs) add(panel(r.a, r.b, groundAt(r.a[0], r.a[1]) - 0.3, Math.min(r.top, cut), 0.67, mat('blockwall')));
+    for (const P of piers) {
+      const c = [(P.x0 + P.x1) / 2, (P.y0 + P.y1) / 2], g = groundAt(c[0], c[1]), o = BLOCK_WALL.capOver;
+      const box = (x0, y0, x1, y1, z0, z1) => { const [a, b] = capped(z0, z1); if (b > a) add(prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], a, b, mat('blockwall'))); };
+      box(P.x0, P.y0, P.x1, P.y1, g - 0.3, P.top);                                          // pier
+      box(P.x0 - o, P.y0 - o, P.x1 + o, P.y1 + o, P.top, P.top + BLOCK_WALL.cap);            // 3" flat cap
+    }
+  }
+  if (opts.site && D.site) {
+    // drape the lot and setback lines on the ground (densified so they follow the surface)
+    const drape = poly => { const o = []; for (let i = 0; i + 1 < poly.length; i++) { const [a, b] = [poly[i], poly[i + 1]], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 3);
+      for (let k = 0; k < n; k++) o.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); } o.push(poly.at(-1)); return o; };
+    add(line3(drape(D.site.lot), 0.08, siteMat));
+    add(line3(drape(D.site.setback), 0.08, setbackMat));
+  }
+
+  // Floors
+  for (const r of D.rooms) {
+    if (/shed/i.test(r.name)) continue;
+    const color = r.conditioned === false || r.finish === 'concrete' ? 'concrete' : 'floor';
+    add(prism(r.poly, HEIGHTS.foundation, roomFloor(r), color === 'floor' ? TERRAZZO : mat(color), { shadow: false }));   // existing floors: terrazzo
+    if (opts.labels && !roofShown) label(`${r.name}<br><small>${Math.round(r.area_sf)} sf</small>`, r.label || centroid(clean(r.poly)), roomFloor(r) + 0.5);
+  }
+  // Surfaces: porch, steps, pavers, addition floor
+  for (let s of D.surfaces) {
+    let z0 = HEIGHTS.foundation, z1 = s.floor_z ?? 0, m = mat('concrete');
+    if (s.material === 'polished') { z0 = -0.2; z1 = 0.005; m = mat('polished'); }
+    else if (s.material === 'terrazzo') { z1 = 0; m = TERRAZZO; }   // door landings: unpainted terrazzo edges   // front + carport door slabs: flush, continuous with the floor (William)
+    else if (/step|paver/i.test(s.name)) { const c = centroid(clean(s.poly)); z1 = groundAt(c[0], c[1]) + 0.15; }
+    add(prism(s.poly, z0, z1 + 0.002, m, { shadow: false }));
+  }
+
+  // Walls
+  for (const w of D.walls) {
+    const ax = w.a[0], ay = w.a[1];
+    const L = Math.hypot(w.b[0] - ax, w.b[1] - ay), dx = (w.b[0] - ax) / L, dy = (w.b[1] - ay) / L;
+    const toUV = p => [(p[0] - ax) * dx + (p[1] - ay) * dy, -(p[0] - ax) * dy + (p[1] - ay) * dx];
+    const toXY = q => [ax + q[0] * dx - q[1] * dy, ay + q[0] * dy + q[1] * dx];
+    let fp = clean(w.footprint).map(toUV);
+    for (const c of D.columns.filter(c => CLEAR_POSTS.includes(c.id))) {   // pull wall ends back to the post's face
+      const [pu, pv] = toUV(c.at), hw = Math.max(c.w, c.d) / 2;
+      const us = fp.map(q => q[0]), u0 = Math.min(...us), u1 = Math.max(...us), vv = fp.map(q => q[1]);
+      if (pv < Math.min(...vv) - hw || pv > Math.max(...vv) + hw) continue;
+      if (Math.abs(pu - u0) < 0.5) fp = clipU(fp, pu + hw, Infinity);
+      else if (Math.abs(pu - u1) < 0.5) fp = clipU(fp, -Infinity, pu - hw);
+    }
+    const vs = fp.map(q => q[1]), vmin = Math.min(...vs), vmax = Math.max(...vs), vmid = (vmin + vmax) / 2;
+    const ops = [...(w.openings || [])].sort((a, b) => a.from - b.from);
+
+    if (w.kind === 'screen') {   // lanai screen between the posts, under a white header beam (same as the kitchen's)
+      const m = panel(toXY([0, vmid]), toXY([L, vmid]), 0, Math.min(HEIGHTS.head, cut), 0.02, screenMat); if (m) { m.castShadow = false; add(m); }
+      const [b0, b1] = capped(HEIGHTS.head, HEIGHTS.ceiling);
+      if (b1 > b0) add(panel(toXY([-0.15, vmid]), toXY([L + 0.15, vmid]), b0, b1, 0.48, mat('post')));
+      continue;
+    }
+
+    const hl = opts.newwork && w.phase === 'new';
+    const isBrick = w.construction === 'brick';
+    const windowWall = /^K2-W/.test(w.id) && !!w.face && w.phase === 'new';   // new kitchen exterior: white posts with glazing between (William); not kept pieces like the W9 stub K2-W4
+    const wm = hl ? mat('newwall') : mat(isBrick ? 'mortar' : windowWall ? 'post' : 'wall');
+    const uMin = Math.min(...fp.map(q => q[0])), uMax = Math.max(...fp.map(q => q[0]));
+    if (windowWall) {   // door / slider frames run right up to the faces of the posts and columns (no filler between)
+      const vlo = Math.min(...fp.map(q => q[1])), vhi = Math.max(...fp.map(q => q[1]));
+      const cols = [...kitchenColumnPolys(D), ...postPolys(D)].map(P => P.map(toUV))
+        .filter(q => Math.min(...q.map(x => x[1])) < vhi + 0.2 && Math.max(...q.map(x => x[1])) > vlo - 0.2)
+        .map(q => [Math.min(...q.map(x => x[0])), Math.max(...q.map(x => x[0]))]);
+      ops.forEach((o, i) => { ops[i] = o = { ...o };
+        for (const [c0, c1] of cols) {
+          if (c0 >= o.to - 0.01 && c0 - o.to < 1.0) o.to = c0;
+          if (c1 <= o.from + 0.01 && o.from - c1 < 1.0) o.from = c1;
+        }
+        o.w = o.to - o.from; });
+    }
+    const faceRange = v => { const us = fp.filter(q => Math.abs(q[1] - v) < 1e-3).map(q => q[0]); return [Math.min(...us), Math.max(...us)]; };
+    // Brick: the core stops at the back of the joints; bricks are modelled on both faces.
+    let core = isBrick ? clipV(fp, vmin + CLAD.brickRecess, vmax - CLAD.brickRecess) : fp;
+    const uMaxFp = Math.max(...fp.map(q => q[0]));
+    if (w.id === BRICK_CORNER.brickWall) core = clipU(core, -Infinity, uMaxFp - CLAD.brickRecess);   // brick on the end face
+    const brickFaces = isBrick ? [{ toXY, vext: vmax, sgn: 1, r: faceRange(vmax) }, { toXY, vext: vmin, sgn: -1, r: faceRange(vmin) }] : [];
+    // Exterior cladding on framed walls: modelled lap siding, or stucco on the new wing if chosen.
+    let clad = null, W = null, ext = null;
+    const xf = (w.exterior_faces || [])[0], XF = xf && { face: xf.face, u: [xf.from, xf.to] }, wFace = w.face || (XF && XF.face);   // part-exterior interior wall (W11)
+    if (wFace && !windowWall && !isBrick) {
+      clad = /^H10/.test(w.id) ? opts.wingFinish : 'lap';
+      const vext = wFace === 'L' ? vmax : vmin, sgn = wFace === 'L' ? 1 : -1;
+      W = { toXY, vext, sgn, start: Math.min(0, floorAt(toXY([(uMin + uMax) / 2, vext - sgn * 1.0]))) };   // siding starts on the slab (studio -8")
+      let [e0, e1] = faceRange(vext); if (XF) { e0 = Math.max(e0, XF.u[0]); e1 = Math.min(e1, XF.u[1]); }
+      // inside corners: pull the siding's ends back out of any other wall it runs into
+      const inOther = u => { const p = toXY([u, vext + sgn * 0.03]); return D.walls.some(x => x !== w && x.kind !== 'screen' && inside(p, x.footprint)); };
+      for (let k = 0; k < 60 && e1 - e0 > 0.05 && inOther(e0 + 0.01); k++) e0 += 0.02;
+      for (let k = 0; k < 60 && e1 - e0 > 0.05 && inOther(e1 - 0.01); k++) e1 -= 0.02;
+      ext = { u0: e0, u1: e1 };
+    }
+    const piece = (lo, hi, z0, z1, pm = wm) => {
+      if (windowWall) z0 = Math.max(z0, 0);   // the kitchen glass walls sit on the slab: its edge runs continuous below them
+      const sliced = z1 > cut;
+      [z0, z1] = capped(z0, z1);
+      if (z1 <= z0) return;
+      const poly = clipU(core, lo, hi);
+      if (poly.length < 3) return;
+      add(prism(poly.map(toXY), z0, z1, pm));
+      if (sliced) add(cutCap(clipU(fp, lo, hi).map(toXY)));
+      if (clad) {
+        const u0 = Math.max(lo, ext.u0), u1 = Math.min(hi, ext.u1);
+        if (u1 - u0 > 1e-3) {
+          if (clad === 'lap') add(lapSiding(W, u0, u1, z0, z1, mat(hl ? 'newwall' : 'siding', { side: THREE.DoubleSide }), W.start));
+          else {
+            const m = prism([[u0, W.vext], [u1, W.vext], [u1, W.vext + W.sgn * 0.04], [u0, W.vext + W.sgn * 0.04]].map(toXY), z0, z1, cladding(clad, hl));
+            if (m) add(wallUV(m, ax, ay, dx, dy));
+          }
+        }
+      }
+      for (const B of brickFaces) {
+        const u0 = Math.max(lo, B.r[0]), u1 = Math.min(hi, B.r[1]);
+        if (u1 - u0 > 1e-3) add(brickFace(B, u0, u1, Math.max(z0, 0), z1, 0, mat(hl ? 'newwall' : 'brick', { side: THREE.DoubleSide })));
+      }
+    };
+    // Glass in an opening u0..u1, z0..z1, with a 2" anodized aluminum frame; sliders get a meeting stile.
+    const glazing = (u0, u1, z0, z1, stile, pat = {}) => {
+      const f = CLAD.frame, [c0, c1] = capped(z0, z1);
+      if (c1 <= c0) return;
+      const g = panel(toXY([u0 + f, vmid]), toXY([u1 - f, vmid]), c0, c1, 0.03, glassMat);
+      if (g) { g.castShadow = false; add(g); }
+      const bar = (a, b, za, zb) => { const [y0, y1] = capped(za, zb); if (y1 > y0) add(panel(toXY([a, vmid]), toXY([b, vmid]), y0, y1, f, aluMat)); };
+      bar(u0, u0 + f, z0, z1); bar(u1 - f, u1, z0, z1); bar(u0, u1, z0, z0 + f); bar(u0, u1, z1 - f, z1);
+      if (stile) { const um = (u0 + u1) / 2; bar(um - f / 2, um + f / 2, z0, z1); }
+      if (pat.jalousie) for (let z = z0 + pat.jalousie; z < z1 - 0.1; z += pat.jalousie) {   // jalousie blade edges
+        const [y0, y1] = capped(z - 0.012, z + 0.012); if (y1 > y0) add(panel(toXY([u0, vmid]), toXY([u1, vmid]), y0, y1, 0.09, aluMat));
+      }
+      const rowBars = (a, b, n) => { for (let i = 1; i < n; i++) { const zm = z0 + (z1 - z0) * i / n; bar(a, b, zm - f / 2, zm + f / 2); } };
+      if (pat.sides && u1 - u0 > 2 * pat.sides) {   // side sections + fixed middle pane
+        const a = u0 + pat.sides, b = u1 - pat.sides;
+        bar(a - f / 2, a + f / 2, z0, z1); bar(b - f / 2, b + f / 2, z0, z1);
+        rowBars(u0, a, pat.sideRows || 1); rowBars(b, u1, pat.sideRows || 1);
+      } else {
+        rowBars(u0, u1, pat.rows || 1);
+        const mw = pat.mullion || f;
+        for (let i = 1; i < (pat.cols || 1); i++) { const um = u0 + (u1 - u0) * i / pat.cols; bar(um - mw / 2, um + mw / 2, z0, z1); }
+      }
+    };
+    // A solid stretch of wall. On the kitchen window wall it becomes posts at each end with fixed glass between.
+    const solid = (lo, hi) => {
+      if (!windowWall) return piece(lo, hi, HEIGHTS.foundation, HEIGHTS.ceiling);
+      const a = Math.max(lo, uMin), b = Math.min(hi, uMax), pw = CLAD.postWidth;
+      // a short stretch holding one of the kitchen columns: only 2" aluminum frame members either side of the column
+      if (b - a <= 2 * pw + 0.25) {
+        const col = [...kitchenColumnPolys(D), ...postPolys(D)].find(P => { const q = P.map(toUV), us = q.map(x => x[0]), vv = q.map(x => x[1]);
+          return Math.max(...us) > a - 0.05 && Math.min(...us) < b + 0.05 && Math.min(...vv) < vmax + 0.2 && Math.max(...vv) > vmin - 0.2; });
+        if (col) {
+          const us = col.map(p => toUV(p)[0]), cu0 = Math.min(...us), cu1 = Math.max(...us), [z0, z1] = capped(0.01, HEIGHTS.head);
+          piece(lo, hi, HEIGHTS.head, HEIGHTS.ceiling);
+          return;
+        }
+      }
+      const alum = KITCHEN_WALL.alumPosts.some(([id, end]) => id === w.id && (end === 'start' ? lo === -Infinity : hi === Infinity));
+      const mLo = alum ? aluMat : wm, mHi = mLo;
+      const post = (l, h, m) => { piece(l, h, HEIGHTS.foundation, HEIGHTS.head, m); piece(l, h, HEIGHTS.head, HEIGHTS.ceiling); };
+      if (b - a <= 2 * pw + 0.25) return post(lo, hi, mLo);
+      post(lo, a + pw, mLo);
+      post(b - pw, hi, mHi);
+      piece(a + pw, b - pw, HEIGHTS.foundation, 0.01);
+      piece(a + pw, b - pw, HEIGHTS.head, HEIGHTS.ceiling);
+      glazing(a + pw, b - pw, 0.01, HEIGHTS.head, false);
+    };
+    const ribbonGaps = [];
+    for (const R of RIBBONS.filter(R => R.wall === w.id)) {
+      const os = R.ids.map(id => ops.find(o => o.id === id)).filter(Boolean).sort((a, b) => a.from - b.from);
+      for (let i = 0; i + 1 < os.length; i++) ribbonGaps.push({ from: os[i].to, to: os[i + 1].from, ids: [os[i].id, os[i + 1].id] });
+    }
+    const bottoms = {}, opInfo = [];
+    let u = -Infinity;
+    for (const o of ops) {
+      solid(u, o.from);
+      const um = (o.from + o.to) / 2;
+      const sidePts = [toXY([um, vmax + 1.0]), toXY([um, vmin - 1.0])];
+      const sides = sidePts.map(roomAt);
+      const floorZ = Math.max(...sidePts.map(floorAt)) + 0.01;   // threshold: the higher side, a hair proud (no flicker)
+      const hasSill = o.type === 'window' || (o.type === 'slider' && o.sill > 0);
+      const bottom = hasSill ? sillZ(o, sides) : floorZ;
+      const head = o.type === 'hole' ? HEIGHTS.ceiling : o.height != null ? sillZ(o, sides) + o.height
+        : o.type === 'window' && o.head != null && o.sill != null && Math.abs(o.head - HEIGHTS.head) > 0.01 ? sillZ(o, sides) - o.sill + o.head   // non-standard head from the export
+        : HEIGHTS.head;
+      const mSill = o.sill_type === 'masonry' && isBrick;
+      // thresholds (openings to the floor) take the floor finish of the higher side: terrazzo, polished concrete or concrete
+      const thr = !hasSill && (() => {
+        const i = floorAt(sidePts[0]) >= floorAt(sidePts[1]) ? 0 : 1, p = sidePts[i], r = sides[i] || sides[1 - i];
+        if (D.surfaces.some(sf => sf.material === 'polished' && inside(p, sf.poly))) return mat('polished');
+        return r && r.conditioned !== false && r.finish !== 'concrete' ? TERRAZZO : mat('concrete');
+      })();
+      piece(o.from, o.to, HEIGHTS.foundation, mSill ? bottom - MASONRY_SILLS.depth : bottom, thr || wm);
+      if (mSill && bottom - MASONRY_SILLS.depth < cut) {   // sloped masonry sill, flat inside, rowlock joints on the slope
+        const M = MASONRY_SILLS, sgx = w.face === 'L' ? 1 : -1, vx = sgx > 0 ? vmax : vmin, vi = sgx > 0 ? vmin : vmax;
+        const vp = vx + sgx * M.proud, sz = bottom, S = [[vi, sz], [vmid, sz], [vp, sz - M.drop], [vp, sz - M.depth], [vi, sz - M.depth]];
+        const u0 = o.from, u1 = o.to, P3 = (u, [v, z]) => { const [x, y] = toXY([u, v]); return [x, y, z]; }, tris = [];
+        for (let i = 0; i < S.length; i++) { const a = S[i], b = S[(i + 1) % S.length];
+          tris.push([P3(u0, a), P3(u1, a), P3(u1, b)], [P3(u0, a), P3(u1, b), P3(u0, b)]); }
+        tris.push(...fan(S.map(q => P3(u0, q))), ...fan(S.map(q => P3(u1, q))));
+        add(triMesh(tris, mat('sillGrey', { side: THREE.DoubleSide })));
+        const jl = [];
+        for (let u = u0 + M.joint; u < u1 - 0.05; u += M.joint) {
+          const a = P3(u, [vmid, sz + 0.004]), b = P3(u, [vp + sgx * 0.004, sz - M.drop + 0.004]), c = P3(u, [vp + sgx * 0.004, sz - M.depth]);
+          jl.push(...a, ...b, ...b, ...c);
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(jl, 3));
+        add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x77746e })));
+      }
+      piece(o.from, o.to, head, HEIGHTS.ceiling);
+      if (windowWall) {   // KITCHEN_WALL details
+        const sg = w.face === 'L' ? 1 : -1, vx = sg > 0 ? vmax : vmin, tb = KITCHEN_WALL.board, pr = CLAD.lapButt + 0.75 / 12;
+        const tbox = (u0, u1, z0, z1, m = mat('trim')) => { const [y0, y1] = capped(z0, z1); if (y1 > y0) add(prism([[u0, vx], [u1, vx], [u1, vx + sg * pr], [u0, vx + sg * pr]].map(toXY), y0, y1, m)); };
+        if (!hasSill && /^K2-/.test(o.id)) { const [y0, y1] = capped(floorZ, floorZ + KITCHEN_WALL.threshold);
+          if (y1 > y0) add(prism([[o.from, vmin - 0.04], [o.to, vmin - 0.04], [o.to, vmax + 0.04], [o.from, vmax + 0.04]].map(toXY), y0, y1, aluMat)); }
+        if (hasSill) {
+          const [y0, y1] = capped(0, bottom - tb);
+          if (y1 > y0) add(lapSiding({ toXY, vext: vx, sgn: sg }, o.from + tb, o.to, y0, y1, mat('siding', { side: THREE.DoubleSide })));
+          tbox(o.from, o.to, bottom - tb, bottom); tbox(o.from, o.from + tb, 0, bottom - tb);
+        }
+        if (KITCHEN_WALL.endTrim.wall === w.id && KITCHEN_WALL.endTrim.opening === o.id) tbox(o.to, o.to + tb, 0, HEIGHTS.ceiling);
+      }
+      // 1x casing around openings in lap-sided walls (not brick, not the kitchen glass walls, not onto the lanai)
+      const extRoom = W ? sides[W.sgn > 0 ? 0 : 1] : null;
+      if (clad === 'lap' && extRoom?.name !== 'Lanai' && o.from >= ext.u0 - 0.1 && o.to <= ext.u1 + 0.1) {
+        const k = o.type === 'window' ? 0.5 : 1;   // windows: half the profile (William 2026-11-01)
+        const ins = CLAD.trimInset * k, tw = ins + CLAD.finThick * k, va = W.vext;
+        const box = (u0, u1, z0, z1, depth) => { const vb = va + W.sgn * depth, [y0, y1] = capped(z0, z1);
+          if (y1 > y0) add(prism([[u0, va], [u1, va], [u1, vb], [u0, vb]].map(toXY), y0, y1, mat('trim'))); };
+        const dIn = CLAD.lapButt + 0.25 / 12, dFin = CLAD.lapButt + (CLAD.finDepth - CLAD.lapButt) * k;   // inset trim just proud of the siding; the 1x stands out
+        const sillTrim = hasSill && bottom > floorZ + 0.05, zb = sillTrim ? bottom - tw : bottom, zi = sillTrim ? bottom - ins : bottom;
+        const covered = u => [...(w.covers || []), ...ribbonGaps].some(c => Math.abs(c.from - u) < 0.05 || Math.abs(c.to - u) < 0.05);
+        if (!covered(o.from)) { box(o.from - ins, o.from, zi, head + ins, dIn); box(o.from - tw, o.from - ins, zb, head + tw, dFin); }   // jambs
+        if (!covered(o.to)) { box(o.to, o.to + ins, zi, head + ins, dIn); box(o.to + ins, o.to + tw, zb, head + tw, dFin); }
+        box(o.from - ins, o.to + ins, head, head + ins, dIn); box(o.from - tw, o.to + tw, head + ins, head + tw, dFin);   // head
+        if (sillTrim) { box(o.from - ins, o.to + ins, bottom - ins, bottom, dIn); box(o.from - tw, o.to + tw, bottom - tw, bottom - ins, dFin); }   // sill
+      }
+      bottoms[o.id] = bottom; opInfo.push({ o, bottom, head, floorZ, hasSill, sides });
+      if (o.type === 'window' || o.type === 'slider') glazing(o.from, o.to, bottom, head, o.type === 'slider' && o.pocket !== true,
+        o.pattern || (sides.some(r => r && (r.name === 'M. Bath' || r.name === 'Carport')) && o.type === 'window'
+          ? { jalousie: JALOUSIE } : { rows: o.rows || 1 }));
+      if (o.pocket === 'a' || o.pocket === 'b') {   // pocket door: leaf parked in the wall, 2" showing past the jamb
+        const atA = o.pocket === 'a', t = 1.375 / 12, ue = atA ? o.from + 2 / 12 : o.to - 2 / 12, us = atA ? o.from - 0.3 : o.to + 0.3;
+        const [z0, z1] = capped(floorZ, HEIGHTS.head - 0.02);
+        if (z1 > z0) add(prism([[us, vmid - t / 2], [ue, vmid - t / 2], [ue, vmid + t / 2], [us, vmid + t / 2]].map(toXY), z0, z1, mat('door')));
+      }
+      if ((o.type === 'door' || o.pocket === 'a' || o.pocket === 'b') && sides.every(r => r && r.conditioned !== false)) {
+        const c = 1.5 / 12, pr = 0.5 / 12;   // interior casing: square 2x, 1/2" proud, white (William 2026-11-01)
+        for (const [vf, sg] of [[vmax, 1], [vmin, -1]]) {
+          const cb = (u0, u1, z0, z1) => { const [y0, y1] = capped(z0, z1); if (y1 > y0) add(prism([[u0, vf], [u1, vf], [u1, vf + sg * pr], [u0, vf + sg * pr]].map(toXY), y0, y1, mat('trim'))); };
+          cb(o.from - c, o.from, floorZ, head + c); cb(o.to, o.to + c, floorZ, head + c); cb(o.from - c, o.to + c, head, head + c);
+        }
+      }
+      if (o.type === 'door') {
+        const outside = sides.map(r => !r || r.conditioned === false);   // [+v side, -v side]
+        addDoor(o, toXY, vmin, vmax, vmid, floorZ, outside[0] !== outside[1] ? (outside[0] ? 1 : -1) : 0);
+      }
+      u = o.to;
+    }
+    solid(u, Infinity);
+    // Interior trim (William 2026-11-01), on the faces toward conditioned rooms of framed walls (not brick, screen or the
+    // kitchen glass walls): square 2x casing, 1/2" proud, around windows and sliders (as on the interior doors), and a
+    // 4" white base along the wall, stopping at openings to the floor and their casings.
+    if (!isBrick && w.kind !== 'screen' && !windowWall) {
+      const C = INTERIOR_TRIM, faces = [[vmax, 1, 0], [vmin, -1, 1]];
+      const strip = (vf, sg, u0, u1, z0, z1, d) => { const [y0, y1] = capped(z0, z1); if (y1 > y0 && u1 - u0 > 0.01) add(prism([[u0, vf], [u1, vf], [u1, vf + sg * d], [u0, vf + sg * d]].map(toXY), y0, y1, mat('trim'))); };
+      const roomOn = (vf, sg, uu) => { const r = roomAt(toXY([uu, vf + sg * 0.6])); return r && r.conditioned !== false ? r : null; };
+      for (const [vf, sg, si] of faces) {
+        const gaps = [];
+        for (const I of opInfo) {
+          const { o } = I, glass = o.type === 'window' || o.type === 'slider', cased = glass || o.type === 'door' || o.pocket === 'a' || o.pocket === 'b';
+          const doorCased = !glass && cased && I.sides.every(r => r && r.conditioned !== false);
+          if (glass && I.sides[si] && I.sides[si].conditioned !== false) {   // window / slider casing on this face
+            const zb = I.hasSill ? I.bottom - C.casing : I.floorZ;
+            strip(vf, sg, o.from - C.casing, o.from, zb, I.head + C.casing, C.proud); strip(vf, sg, o.to, o.to + C.casing, zb, I.head + C.casing, C.proud);
+            strip(vf, sg, o.from - C.casing, o.to + C.casing, I.head, I.head + C.casing, C.proud);
+            if (I.hasSill) strip(vf, sg, o.from - C.casing, o.to + C.casing, I.bottom - C.casing, I.bottom, C.proud);
+          }
+          if (!I.hasSill) gaps.push([o.from - (glass || doorCased ? C.casing : 0), o.to + (glass || doorCased ? C.casing : 0)]);
+        }
+        const [f0, f1] = faceRange(vf);
+        let a = f0;
+        for (const [g0, g1] of [...gaps.sort((p, q) => p[0] - q[0]), [f1, f1]]) {
+          const b = Math.min(g0, f1);
+          if (b - a > 0.05) { const r = roomOn(vf, sg, (a + b) / 2); if (r) { const z = roomFloor(r); strip(vf, sg, a, b, z, z + C.base, C.baseProud); } }
+          a = Math.max(a, g1);
+        }
+      }
+    }
+    if (clad === 'lap') for (const g of ribbonGaps) {   // white trim posts between ribbon windows, sill to head
+      const vb = W.vext + W.sgn * (CLAD.lapButt + CLAD.trimThick);
+      const [z0, z1] = capped(Math.min(...g.ids.map(id => bottoms[id])), HEIGHTS.head);
+      if (z1 > z0) add(prism([[g.from, W.vext], [g.to, W.vext], [g.to, vb], [g.from, vb]].map(toXY), z0, z1, mat('trim')));
+    }
+    // floor slab edge under the exterior cladding: concrete from the footing up to the floor, a hair proud of the wall face
+    if (wFace && !windowWall) {
+      const vx = wFace === 'L' ? vmax : vmin, sg = wFace === 'L' ? 1 : -1;
+      let [r0, r1] = faceRange(vx); if (XF) { r0 = Math.max(r0, XF.u[0]); r1 = Math.min(r1, XF.u[1]); }
+      const fIn = Math.min(0, floorAt(toXY([(r0 + r1) / 2, vx - sg * 1.0])));   // the slab under this wall: studio -8"
+      const [z0, z1] = capped(HEIGHTS.foundation, fIn);
+      if (z1 > z0 && r1 - r0 > 0.01) add(prism([[r0, vx - sg * 0.3], [r1, vx - sg * 0.3], [r1, vx + sg * CLAD.slabProud], [r0, vx + sg * CLAD.slabProud]].map(toXY), z0, z1, mat('slabEdge')));
+    }
+    // north corner: brick on the brick wall's end face; corner board where the siding wall stops
+    if (w.id === BRICK_CORNER.brickWall) {
+      const Wend = { toXY: ([s, t]) => toXY([uMaxFp + t, vmin + s]), vext: 0, sgn: 1 };
+      const [z0, z1] = capped(0, HEIGHTS.ceiling);
+      if (z1 > z0) add(brickFace(Wend, 0, vmax - vmin, z0, z1, 0, mat(hl ? 'newwall' : 'brick', { side: THREE.DoubleSide })));
+      // the white slab edge wraps the end of the brick wall too (below the floor)
+      const [s0, s1] = capped(HEIGHTS.foundation, 0);
+      if (s1 > s0) add(prism([[uMaxFp - 0.3, vmin], [uMaxFp + CLAD.slabProud, vmin], [uMaxFp + CLAD.slabProud, vmax], [uMaxFp - 0.3, vmax]].map(toXY), s0, s1, mat('slabEdge')));
+    }
+    if (w.id === BRICK_CORNER.sidingWall && W) {
+      const uc = toUV(w.b)[0], d = CLAD.lapButt + 0.75 / 12, [z0, z1] = capped(0.01, HEIGHTS.ceiling);   // stops on the slab
+      if (z1 > z0) add(prism([[uc - BRICK_CORNER.board, W.vext], [uc, W.vext], [uc, W.vext + W.sgn * d], [uc - BRICK_CORNER.board, W.vext + W.sgn * d]].map(toXY), z0, z1, mat('trim')));
+    }
+    for (const c of w.covers || []) {
+      const vext = w.face === 'L' ? vmax : vmin, sgn = w.face === 'L' ? 1 : -1, vb = vext + sgn * (CLAD.lapButt + CLAD.trimThick);
+      if (c.sill == null) {   // aluminum cover between mated windows, floor to head
+        const [z0, z1] = capped(0.01, HEIGHTS.head);
+        if (z1 > z0) add(prism([[c.from - 0.08, vext], [c.to + 0.08, vext], [c.to + 0.08, vb], [c.from - 0.08, vb]].map(toXY), z0, z1, aluMat));
+        continue;
+      }
+      // panel inside a ribbon's trim opening (H10-X1, William 2026-11-01): painted plywood from the sill to the head, with
+      // the windows' head and sill trim carried across it so the run reads as one trimmed opening; siding below
+      const zs = c.sill, zh = c.head ?? HEIGHTS.head, k = 0.5, ins = CLAD.trimInset * k, tw = ins + CLAD.finThick * k;
+      const dIn = CLAD.lapButt + 0.25 / 12, dFin = CLAD.lapButt + (CLAD.finDepth - CLAD.lapButt) * k;
+      const box = (u0, u1, z0, z1, depth, m) => { const vb2 = vext + sgn * depth, [y0, y1] = capped(z0, z1);
+        if (y1 > y0) add(prism([[u0, vext], [u1, vext], [u1, vb2], [u0, vb2]].map(toXY), y0, y1, m)); };
+      box(c.from, c.to, zs, zh, CLAD.lapButt + 0.1 / 12, mat(c.material === 'plywood' ? 'siding' : 'trim'));   // the panel
+      box(c.from, c.to, zh, zh + ins, dIn, mat('trim')); box(c.from, c.to, zh + ins, zh + tw, dFin, mat('trim'));   // head
+      box(c.from, c.to, zs - ins, zs, dIn, mat('trim')); box(c.from, c.to, zs - tw, zs - ins, dFin, mat('trim'));   // sill
+    }
+  }
+
+  // Interior doors are drawn open. Exterior doors (one side outdoors, the lanai or the carport) are drawn closed, as
+  // full-lite doors. The front door is forest green outside, white inside, with frosted glass.
+  function addDoor(o, toXY, vmin, vmax, vmid, z0, extSide) {
+    const leaves = o.leaves || 1, bifold = !!o.bifold, lw = o.w / leaves;
+    if (extSide) {
+      if (o.id === STUDIO_DOOR.id) return studioDoor(o, toXY, vmid, z0, extSide);
+      const front = /front door/i.test(o.note || ''), alu = ANODIZED_DOORS.includes(o.id), t = CLAD.doorThick, s = CLAD.doorStile;
+      const zHead = HEIGHTS.head, glass = front ? frostMat : glassMat;
+      for (let i = 0; i < leaves; i++) {
+        const u0 = o.from + i * lw, u1 = u0 + lw;
+        // stiles and rails in two layers so the two faces can differ
+        for (const [layer, color] of [[1, front ? 'forest' : 'door'], [-1, 'door']]) {
+          const v = vmid + extSide * layer * t / 4, m = alu ? aluMat : mat(color);
+          const part = (a, b, za, zb) => { const [y0, y1] = capped(za, zb); if (y1 > y0) add(panel(toXY([a, v]), toXY([b, v]), y0, y1, t / 2, m)); };
+          part(u0, u0 + s, z0, zHead); part(u1 - s, u1, z0, zHead);
+          part(u0 + s, u1 - s, z0, z0 + CLAD.doorBottom); part(u0 + s, u1 - s, zHead - s, zHead);
+        }
+        const [g0, g1] = capped(z0 + CLAD.doorBottom, zHead - s);
+        if (g1 > g0) { const g = panel(toXY([u0 + s, vmid]), toXY([u1 - s, vmid]), g0, g1, 0.02, glass); g.castShadow = false; add(g); }
+        if (JALOUSIE_DOORS.includes(o.id)) for (let z = g0 + JALOUSIE; z < g1 - 0.05; z += JALOUSIE)   // jalousie lite
+          add(panel(toXY([u0 + s, vmid]), toXY([u1 - s, vmid]), z - 0.012, z + 0.012, 0.09, aluMat));
+      }
+      return;
+    }
+    const sideV = o.swing === 'L' ? 1 : -1;       // L = left of a->b = +v
+    const vFace = sideV > 0 ? vmax : vmin;
+    const ang = (bifold ? 25 : HEIGHTS.doorOpenDeg) * Math.PI / 180;
+    const hinges = leaves === 2 ? [[o.from, 1], [o.to, -1]] : [[o.hinge === 'b' ? o.to : o.from, o.hinge === 'b' ? -1 : 1]];
+    for (const [uh, dir] of hinges) {
+      const end = [uh + dir * lw * Math.cos(ang), vFace + sideV * lw * Math.sin(ang)];
+      add(panel(toXY([uh, vFace]), toXY(end), ...capped(z0, HEIGHTS.head), 0.146, mat('door')));
+    }
+  }
+
+  // Studio door (STUDIO_DOOR): green outside / white inside stiles and rails; X + diamond lattice in the upper lite;
+  // X brace in a framed lower panel.
+  function studioDoor(o, toXY, vmid, z0, extSide) {
+    const S = STUDIO_DOOR, t = CLAD.doorThick, s = CLAD.doorStile, u0 = o.from, u1 = o.to, zH = HEIGHTS.head;
+    const zm = z0 + S.midRail, zb = z0 + CLAD.doorBottom;
+    for (const [layer, color] of [[1, 'forest'], [-1, 'forest']]) {
+      const v = vmid + extSide * layer * t / 4, m = mat(color), vf = vmid + extSide * layer * (t / 2 + 0.02);
+      const part = (a, b, za, zb2) => { const [y0, y1] = capped(za, zb2); if (y1 > y0) add(panel(toXY([a, v]), toXY([b, v]), y0, y1, t / 2, m)); };
+      part(u0, u0 + s, z0, zH); part(u1 - s, u1, z0, zH);
+      part(u0 + s, u1 - s, z0, zb); part(u0 + s, u1 - s, zH - s, zH); part(u0 + s, u1 - s, zm - s / 2, zm + s / 2);
+      // a diagonal bar from (ua, za) to (ub, zb) standing on the face at v
+      const diag = (ua, za, ub, zb2, w, d, vv) => {
+        if (Math.max(za, zb2) > cut) return;
+        const A = toXY([ua, vv]), B = toXY([ub, vv]), L = Math.hypot(ub - ua, zb2 - za);
+        const g = new THREE.BoxGeometry(L, w, d), mesh = new THREE.Mesh(g, m);
+        mesh.position.set((A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (za + zb2) / 2);
+        const ex = new THREE.Vector3(B[0] - A[0], B[1] - A[1], zb2 - za).normalize();
+        const ey = new THREE.Vector3(-(B[1] - A[1]), B[0] - A[0], 0).normalize(), ez = new THREE.Vector3().crossVectors(ex, ey);
+        mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(ex, ez, ey.negate()));
+        mesh.castShadow = true; add(mesh);
+      };
+      // lower panel: inner square frame and X brace, proud of the panel
+      const lu0 = u0 + s, lu1 = u1 - s, lz0 = zb, lz1 = zm - s / 2, bw = S.brace, dz = bw * 0.6;
+      part(lu0, lu1, lz0, lz1);   // the panel itself
+      diag(lu0 + bw / 2, lz0 + bw / 2, lu1 - bw / 2, lz1 - bw / 2, bw, 0.04, vf);
+      diag(lu0 + bw / 2, lz1 - bw / 2, lu1 - bw / 2, lz0 + bw / 2, bw, 0.04, vf);
+      for (const [a, b, za, zz] of [[lu0, lu0 + bw, lz0, lz1], [lu1 - bw, lu1, lz0, lz1], [lu0, lu1, lz0, lz0 + bw], [lu0, lu1, lz1 - bw, lz1]]) {
+        const [y0, y1] = capped(za, zz); if (y1 > y0) add(panel(toXY([a, vf]), toXY([b, vf]), y0, y1, 0.04, m));
+      }
+      // upper lite lattice: X corner to corner, plus a diamond through the side midpoints
+      const gu0 = u0 + s, gu1 = u1 - s, gz0 = zm + s / 2, gz1 = zH - s, um = (gu0 + gu1) / 2, gm = (gz0 + gz1) / 2, mu = S.muntin;
+      for (const [a, b, c, d] of [[gu0, gz0, gu1, gz1], [gu0, gz1, gu1, gz0], [gu0, gm, um, gz1], [um, gz1, gu1, gm], [gu1, gm, um, gz0], [um, gz0, gu0, gm]])
+        diag(a, b, c, d, mu, t / 2, v);
+    }
+    const [g0, g1] = capped(zm + s / 2, zH - s);
+    if (g1 > g0) { const g = panel(toXY([u0 + s, vmid]), toXY([u1 - s, vmid]), g0, g1, 0.02, glassMat); g.castShadow = false; add(g); }
+  }
+
+  // Kitchen: cabinets, tops, appliances (KITCHEN)
+  if (opts.furn) {
+    const K = KITCHEN, el = id => D.elements.find(e => e.id === id);
+    const bbox = e => { const p = flat2pts(e.lines[0]); const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const rectPts = ([x0, y0, x1, y1]) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    const block = (poly, z0, z1, m, holes = []) => {
+      const [y0, y1] = capped(z0, z1); if (y1 <= y0) return;
+      add(prism(poly, y0, y1, m, { holes })); if (z1 > cut) add(caseCap(poly));
+    };
+    const jm = mat('joint'), ssMat = new THREE.MeshStandardMaterial({ color: COLORS.ss, metalness: 0.6, roughness: 0.35 });
+    const rng = el(K.range.id) && bbox(el(K.range.id));
+    const rangeBox = rng && (() => { const cx = (rng[0] + rng[2]) / 2, h = K.range.width / 2;
+      return [cx - h, rng[1], cx + h, rng[3]]; })();
+    const zoneBoxes = K.zones.map(z => ({ type: z.type, box: z.type === 'oven' ? rangeBox : el(z.id) && bbox(el(z.id)) })).filter(z => z.box);
+    const micro = rangeBox && (() => { const cx = (rangeBox[0] + rangeBox[2]) / 2, h = K.microwave.width / 2;
+      return [cx - h, rangeBox[1], cx + h, rangeBox[1] + K.microwave.depth]; })();
+    if (micro) zoneBoxes.push({ type: 'micro', box: micro, upper: true });
+    const sinkBox = id => el(id) && bbox(el(id));
+    const lineBox = l => { const p = flat2pts(l), xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const runInfo = new Map();
+
+    for (const R of K.runs) {
+      const e = el(R.id); if (!e) continue;
+      let poly, T;
+      if (R.front) { poly = rectPts(bbox(e)); T = { S: 'fwww', E: 'wfww', N: 'wwfw', W: 'wwwf', '-': 'wwww' }[R.front]; }
+      else { poly = clean(R.poly === 'fill' ? flat2pts(e.fills[0]) : R.poly === 'line0' ? flat2pts(e.lines[0]) : R.poly); T = R.types; }
+      const n = poly.length, sg = Math.sign(area(poly)) || 1;
+      const base = R.kind === 'base' || R.kind === 'ledge', top = R.top ?? K.counterTop;
+      const [zb, zt] = R.kind === 'upper' ? [R.bottom ?? HEIGHTS.upperBottom, HEIGHTS.upperTop] : R.kind === 'tall' ? [0, e.height != null ? e.height - (R.filler ? 2 / 12 : 0) : R.height ?? HEIGHTS.tall] : [0, top - K.quartz];
+      const bodyMat = R.kind === 'ledge' && !R.wood ? mat('wall') : mat(R.wood ? 'wood' : 'cabinet');   // kitchen: wood fronts like the shelves and table (William 2026-11-01)
+      const sinks = R.sink ? [sinkBox(R.sink)].filter(Boolean) : R.sinkLines ? R.sinkLines.map(i => lineBox(e.lines[i])) : [];
+      const holes = sinks.map(rectPts);
+      const fi = [...T].indexOf('f'), fA = poly[fi], fB = poly[(fi + 1) % n];
+      const fn = fi < 0 ? null : (() => { const L = Math.hypot(fB[0] - fA[0], fB[1] - fA[1]), d = [(fB[0] - fA[0]) / L, (fB[1] - fA[1]) / L];
+        return sg > 0 ? [d[1], -d[0]] : [-d[1], d[0]]; })();
+      runInfo.set(R, { poly, T, top, sinks, fn });
+      // body, with a recessed toe kick under fronts
+      if (R.kind === 'upper') { block(poly, zb, zt, bodyMat); block(offsetPoly(poly, [...T].map(t => t === 'f' ? -0.03 : 0)), zt, HEIGHTS.ceiling, bodyMat); }   // + 2" filler, a hair back
+      else {
+        const kickPoly = R.kind === 'ledge' ? poly : offsetPoly(poly, [...T].map(t => t === 'f' ? -K.kickDepth : 0));
+        block(kickPoly, zb, zb + K.kick, R.kind === 'ledge' ? bodyMat : mat('joint'));
+        block(poly, zb + K.kick, zt, bodyMat, holes);
+        if (R.filler) block(offsetPoly(poly, [...T].map(t => t === 'f' ? -0.03 : 0)), zt, HEIGHTS.ceiling, bodyMat);   // 2" filler, a hair back
+      }
+      // quartz top
+      // the export's `top` = countertop outline where it differs from the body (pass-through: top 4" past the cabinet back)
+      const topPoly = R.poly === 'fill' && e.top ? clean(flat2pts(e.top[0])) : poly;
+      if (base) block(offsetPoly(topPoly, [...T].map(t => t === 'w' ? 0 : K.overhang)), top - K.quartz, top, mat('quartz'), holes);
+      // mirror on the wall behind a vanity
+      if (R.mirror && fn) {
+        const bi = (fi + 2) % n, P0 = poly[bi], P1 = poly[(bi + 1) % n], t0 = 0.05 / Math.hypot(P1[0] - P0[0], P1[1] - P0[1]);
+        const a = [P0[0] + (P1[0] - P0[0]) * t0, P0[1] + (P1[1] - P0[1]) * t0], b = [P1[0] - (P1[0] - P0[0]) * t0, P1[1] - (P1[1] - P0[1]) * t0];
+        const q = (p, v) => [p[0] + fn[0] * v, p[1] + fn[1] * v];
+        block([q(a, 0.005), q(b, 0.005), q(b, 0.04), q(a, 0.04)], top + 0.5, 6.6, new THREE.MeshStandardMaterial({ color: 0xc9d3d9, metalness: 0.35, roughness: 0.08 }));
+      }
+      if (R.kind === 'ledge') continue;
+      // fronts: modules split at appliance zones, joints between them; base modules are 3 drawers
+      const fz0 = R.kind === 'upper' ? zb : zb + K.kick, fz1 = zt - 0.01;
+      for (let i = 0; i < n; i++) {
+        if (T[i] !== 'f') continue;
+        const A = poly[i], B = poly[(i + 1) % n], L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        const dir = [(B[0] - A[0]) / L, (B[1] - A[1]) / L], nrm = sg > 0 ? [dir[1], -dir[0]] : [-dir[1], dir[0]];
+        const U = p => (p[0] - A[0]) * dir[0] + (p[1] - A[1]) * dir[1], V = p => (p[0] - A[0]) * nrm[0] + (p[1] - A[1]) * nrm[1];
+        const zs = [];
+        for (const z of zoneBoxes) {
+          if (!!z.upper !== (R.kind === 'upper') || R.kind === 'tall') continue;
+          const c = rectPts(z.box), us = c.map(U), vv = c.map(V);
+          if (Math.min(...vv) < 0.2 && Math.max(...vv) > -2.6 && Math.max(...us) > 0.05 && Math.min(...us) < L - 0.05)
+            zs.push([Math.max(0, Math.min(...us)), Math.min(L, Math.max(...us)), z.type]);
+        }
+        zs.sort((a, b) => a[0] - b[0]);
+        const mods = []; let u = 0;
+        const fill = (a, b) => { const g = b - a; if (g < 0.1) return; if (g < 0.75) { mods.push([a, b, 'panel']); return; }
+          const k = Math.ceil(g / R.maxW - 1e-6); for (let j = 0; j < k; j++) mods.push([a + g * j / k, a + g * (j + 1) / k, base ? 'drawers' : 'door']); };
+        for (const z of zs) { fill(u, z[0]); mods.push(z); u = Math.max(u, z[1]); }
+        fill(u, L);
+        const at = (uu, v) => [A[0] + dir[0] * uu + nrm[0] * v, A[1] + dir[1] * uu + nrm[1] * v];
+        const strip = (u0, u1, z0, z1, m = jm, v0 = 0.002, v1 = 0.01) => block([at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)], z0, z1, m);
+        const J = K.joint / 2;
+        mods.forEach(([u0, u1, t], k) => {
+          if (k > 0) strip(u0 - J, u0 + J, fz0, fz1);
+          if (t === 'micro') { const z = HEIGHTS.upperBottom - 0.01 + K.microwave.height; strip(u0 + J, u1 - J, z - J, z + J); }
+          if (t === 'oven') {   // stainless oven centered in the module, flush filler panel around it
+            const c = (u0 + u1) / 2, h = K.oven.width / 2, o1 = fz1 - 0.02, o0 = o1 - K.oven.height;
+            strip(c - h, c + h, o0, o1, ssMat, 0.0, 0.03);
+            strip(c - h + 0.25, c + h - 0.25, o0 + 0.35, o1 - 0.65, mat('rangeBlack'), 0.0, 0.035);   // window
+            strip(c - h + 0.05, c + h - 0.05, o1 - 0.2, o1 - 0.02, mat('rangeBlack'), 0.0, 0.035);    // control strip
+            strip(c - h + 0.3, c + h - 0.3, o1 - 0.4, o1 - 0.33, ssMat, 0.0, 0.16);                   // handle
+          }
+          if (t === 'drawers') for (const f of K.drawerSplits) { const z = fz0 + (fz1 - fz0) * f; strip(u0 + J, u1 - J, z - J, z + J); }
+          if (t === 'ss') strip(u0 + J, u1 - J, fz0, fz1, ssMat, 0.0, 0.02);
+        });
+        if (R.edgeJoints) { strip(0, 2 * J, fz0, fz1); strip(L - 2 * J, L, fz0, fz1); }   // joints on the export's box edges
+        strip(0, L, fz1 - 0.001, fz1 + 0.01);   // reveal under the top
+      }
+    }
+
+    // sink: stainless single bowl, open basin below the quartz (a hair inside the hole, so no flicker), with a gooseneck faucet behind
+    for (const R of K.runs) {
+      const I = runInfo.get(R); if (!I || !I.sinks.length || !I.fn) continue;
+      const porcelain = R.basin === 'porcelain', sc = porcelain ? 0.55 : 1, depth = porcelain ? 6 / 12 : K.sinkDepth;
+      const bmat = new THREE.MeshStandardMaterial({ color: porcelain ? COLORS.porcelain : COLORS.ss, metalness: porcelain ? 0 : 0.6, roughness: porcelain ? 0.3 : 0.35, side: THREE.DoubleSide });
+      for (const [x0, y0, x1, y1] of I.sinks) {
+        const zt = I.top - 0.005, zb = zt - depth;
+        if (zb < cut) {
+          const zc = Math.min(zt, cut), P = rectPts([x0 + 0.006, y0 + 0.006, x1 - 0.006, y1 - 0.006]), tris = [fan(P.map(p => [...p, zb]))].flat();
+          for (let i = 0; i < 4; i++) { const p = P[i], q = P[(i + 1) % 4]; tris.push([[...p, zb], [...q, zb], [...q, zc]], [[...p, zb], [...q, zc], [...p, zc]]); }
+          add(triMesh(tris, bmat));
+        }
+        // faucet behind the bowl, spout reaching toward the front
+        const n = I.fn, half = Math.abs(n[0]) * (x1 - x0) / 2 + Math.abs(n[1]) * (y1 - y0) / 2;
+        const fx = (x0 + x1) / 2 - n[0] * (half + 0.17 * sc), fy = (y0 + y1) / 2 - n[1] * (half + 0.17 * sc);
+        if (cut > I.top + 1.2 * sc) {
+          const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * sc, 0.06 * sc, 1.15 * sc, 12), ssMat);
+          riser.rotation.x = Math.PI / 2; riser.position.set(fx, fy, I.top + 0.575 * sc); add(riser);
+          const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.035 * sc, 0.035 * sc, 0.75 * sc, 10), ssMat);
+          spout.rotation.z = Math.atan2(-n[0], n[1]); spout.position.set(fx + n[0] * 0.36 * sc, fy + n[1] * 0.36 * sc, I.top + 1.13 * sc); add(spout);
+        }
+      }
+    }
+
+    // cooktop: William's black 32" glass induction cooktop, sitting on the quartz over the oven
+    if (rangeBox && K.counterTop < cut) {
+      const [x0, y0, x1, y1] = rangeBox, top = [[x0, y0 + 0.1], [x1, y0 + 0.1], [x1, y1 - 0.06], [x0, y1 - 0.06]];
+      add(prism(top, K.counterTop, K.counterTop + 0.02, new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 0.15, metalness: 0.1 })));
+      add(polylines(el(K.range.id).lines.slice(1), K.counterTop + 0.025, new THREE.LineBasicMaterial({ color: 0x55575c })));
+    }
+
+    // hood / microwave: stainless over-the-range unit under the uppers, centered over the cooktop (front faces north)
+    if (micro) {
+      const [x0, y0, x1, y1] = micro, zb = HEIGHTS.upperBottom - 0.01, zt = zb + K.microwave.height;
+      block([[x0, y0 + 0.02], [x1, y0 + 0.02], [x1, y1], [x0, y1]], zb, zt, ssMat);
+      const f = (xa, xb, za, zb2, m, d = 0.012) => block([[xa, y1], [xb, y1], [xb, y1 + d], [xa, y1 + d]], za, zb2, m);
+      f(x0 + 0.12, x1 - 0.75, zb + 0.15, zt - 0.3, mat('rangeBlack'));          // door window
+      f(x1 - 0.68, x1 - 0.1, zb + 0.15, zt - 0.3, mat('rangeBlack'));           // control panel
+      f(x0 + 0.05, x1 - 0.05, zt - 0.22, zt - 0.06, mat('cut'));                 // vent grille
+      f(x1 - 0.85, x1 - 0.8, zb + 0.2, zt - 0.35, ssMat, 0.12);                  // handle
+    }
+
+    // fridge: stainless counter-depth, two doors over two drawers
+    const fr = el(K.fridge.id) && bbox(el(K.fridge.id));
+    if (fr) {
+      // William 2026-11-01: on a toe kick (export `toe_kick`, like the cabinets), body up to the cabinet over it
+      const [x0, y0, x1, y1] = fr, fx = x0 - 0.06, D0 = K.fridge.doorsFrom;   // front faces west
+      const tk = el(K.fridge.id).toe_kick, Z0 = tk ? tk.h : 0;
+      const over = K.runs.find(R => R.id === K.fridge.id && R.kind === 'upper'), H = over ? over.bottom : Z0 + K.fridge.height;
+      if (tk) block([[fx + tk.recess, y0 + 0.02], [x1 - 0.04, y0 + 0.02], [x1 - 0.04, y1 - 0.02], [fx + tk.recess, y1 - 0.02]], 0, Z0, mat('joint'));
+      block([[fx, y0 + 0.02], [x1 - 0.04, y0 + 0.02], [x1 - 0.04, y1 - 0.02], [fx, y1 - 0.02]], Z0, H, ssMat);
+      const st = (ya, yb, za, zb, m = mat('cut'), d = 0.01) => block([[fx - d, ya], [fx, ya], [fx, yb], [fx - d, yb]], za, zb, m);
+      const ym = (y0 + y1) / 2, DM = (Z0 + D0) / 2;                 // doors from D0 up; two drawers below, split evenly
+      st(ym - 0.004, ym + 0.004, D0, H);                            // between the two doors
+      st(y0 + 0.02, y1 - 0.02, D0 - 0.004, D0 + 0.004);             // doors / drawers
+      st(y0 + 0.02, y1 - 0.02, DM - 0.004, DM + 0.004);             // between the drawers
+      st(ym - 0.2, ym - 0.14, D0 + 0.8, H - 0.6, ssMat, 0.15); st(ym + 0.14, ym + 0.2, D0 + 0.8, H - 0.6, ssMat, 0.15);   // door handles
+      st(y0 + 0.5, y1 - 0.5, D0 - 0.25, D0 - 0.18, ssMat, 0.15); st(y0 + 0.5, y1 - 0.5, DM - 0.25, DM - 0.18, ssMat, 0.15);   // drawer handles
+    }
+  }
+
+  // Bath fixtures, laundry, bookcase (BATH)
+  if (opts.furn) {
+    const el = id => D.elements.find(e => e.id === id);
+    const box = l => { const p = flat2pts(l), xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const R4 = ([x0, y0, x1, y1]) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    const blk = (poly, z0, z1, m, holes = []) => { const [y0, y1] = capped(z0, z1); if (y1 <= y0) return; add(prism(poly, y0, y1, m, { holes })); if (z1 > cut) add(caseCap(poly)); };
+    const porc = mat('porcelain'), chrome = new THREE.MeshStandardMaterial({ color: COLORS.ss, metalness: 0.6, roughness: 0.3 });
+    const cyl = (r, h, x, y, z, axis, m = chrome) => { if (z - h / 2 >= cut) return; const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), m);
+      if (axis === 'z') c.rotation.x = Math.PI / 2; else if (axis === 'x') c.rotation.z = Math.PI / 2; c.position.set(x, y, z); add(c); };
+    const ell = (cx, cy, ux, uy, a, b, k = 28) => Array.from({ length: k }, (_, i) => { const t = i / k * 2 * Math.PI, p = a * Math.cos(t), q = b * Math.sin(t);
+      return [cx + ux * p - uy * q, cy + uy * p + ux * q]; });
+
+    // tubs: porcelain shell with the inner basin, spout on one end
+    for (const t of BATH.tubs) {
+      const e = el(t.id); if (!e) continue;
+      const out = box(e.fills ? e.fills[0] : e.lines[0]), inn = box(e.lines[t.inner]);
+      blk(R4(out), 0, BATH.tubRim, porc, [R4(inn)]); blk(R4(inn), 0, 0.35, porc);
+      const cy = (inn[1] + inn[3]) / 2;
+      cyl(0.04, 0.4, t.spout === 'E' ? out[2] - 0.2 : out[0] + 0.2, cy, BATH.tubRim + 0.35, 'x');
+    }
+    // shower: tile pan, frameless glass on the open side, head on the wall
+    for (const s of BATH.showers) {
+      const e = el(s.id); if (!e) continue;
+      const [x0, y0, x1, y1] = box(e.fills[0]);
+      blk(R4([x0, y0, x1, y1]), 0, 0.02, mat('showerFloor'));
+      if (s.open === 'W') {
+        blk([[x0, y0], [x0 + 0.28, y0], [x0 + 0.28, y1], [x0, y1]], 0, 0.33, mat('quartz'));     // curb
+        const [g0, g1] = capped(0.33, 7.0), g = g1 > g0 && panel([x0 + 0.14, y0], [x0 + 0.14, y1], g0, g1, 0.03, glassMat); if (g) { g.castShadow = false; add(g); }
+        blk([[x0 + 0.12, y0 + (y1 - y0) / 2 - 0.005], [x0 + 0.16, y0 + (y1 - y0) / 2 - 0.005], [x0 + 0.16, y0 + (y1 - y0) / 2 + 0.005], [x0 + 0.12, y0 + (y1 - y0) / 2 + 0.005]], 0.33, 7.0, chrome);   // door edge
+      }
+      if (s.head === 'N') { const cx = (x0 + x1) / 2; cyl(0.03, 0.5, cx, y1 - 0.25, 6.6, 'y'); cyl(0.25, 0.04, cx, y1 - 0.5, 6.55, 'z'); cyl(0.2, 0.03, cx, y1 - 0.02, 4.0, 'y'); }
+      if (s.head === 'S') { const cx = (x0 + x1) / 2; cyl(0.03, 0.5, cx, y0 + 0.25, 6.6, 'y'); cyl(0.25, 0.04, cx, y0 + 0.5, 6.55, 'z'); cyl(0.2, 0.03, cx, y0 + 0.02, 4.0, 'y'); }
+    }
+    // toilets: tank, bowl, seat (local frame: u from the back wall along dir, v sideways)
+    for (const t of BATH.toilets) {
+      const [bx, by] = t.back, [ux, uy] = t.dir, P = (u, v) => [bx + ux * u - uy * v, by + uy * u + ux * v];
+      const rect = (u0, u1, v0, v1) => [P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v1)];
+      blk(rect(0, 0.62, -0.82, 0.82), 1.3, 2.45, porc);              // tank
+      blk(rect(0.15, 0.7, -0.4, 0.4), 0, 1.3, porc);                 // back of the base, under the tank
+      const c = P(1.3, 0); blk(ell(c[0], c[1], ux, uy, 0.5, 0.36), 0, 0.6, porc);          // pedestal
+      const c2 = P(1.48, 0); blk(ell(c2[0], c2[1], ux, uy, 0.87, 0.62), 0.6, 1.25, porc);   // bowl
+      blk(ell(c2[0], c2[1], ux, uy, 0.85, 0.6), 1.25, 1.33, porc);                          // seat + lid
+    }
+    // laundry: front-load washer and dryer, door ring and control strip on the front
+    for (const L of BATH.laundry) {
+      const e = el(L.id); if (!e) continue;
+      const [x0, y0, x1, y1] = box(e.lines[0]), H = 38.5 / 12, cx = (x0 + x1) / 2;
+      blk(R4([x0 + 0.02, y0, x1 - 0.02, y1]), 0, H, mat('appliance_white'));
+      blk([[x0 + 0.05, y1], [x1 - 0.05, y1], [x1 - 0.05, y1 + 0.01], [x0 + 0.05, y1 + 0.01]], H - 0.4, H - 0.08, mat('joint'));   // controls
+      cyl(0.72, 0.05, cx, y1 + 0.02, 1.45, 'y'); cyl(0.58, 0.06, cx, y1 + 0.03, 1.45, 'y', mat('rangeBlack'));                     // door
+    }
+    // bookcase: open shelving on the hall side, 3 bays with 1" panels
+    { const B = BATH.bookcase, e = el(B.id);
+      if (e) {
+        const [x0, y0, x1, y1] = box(e.lines[0]), H = B.height, w = mat('wood'), t = 1 / 12;
+        const dv = e.lines.slice(1).map(box).sort((a, b) => a[1] - b[1]);
+        blk(R4([x0, y0, x0 + 0.06, y1]), 0, H, w);                                           // back
+        const panels = [[y0, y0 + t], ...dv.map(d => [d[1], d[3]]), [y1 - t, y1]];
+        for (const [a, b] of panels) { blk(R4([x0, a, x1, b]), 0.33, H, w); blk(R4([x0, a, x1 - 0.25, b]), 0, 0.33, w); }   // sides + dividers, pulled back at the kick
+        blk(R4([x0, y0, x1, y1]), H - t, H, w); blk(R4([x0, y0, x1 - 0.25, y1]), 0, 0.33, mat('joint'));   // top, recessed plinth
+        for (let i = 0; i + 1 < panels.length; i++) {
+          const ya = panels[i][1], yb = panels[i + 1][0];
+          for (const [z, z2] of BOOKCASE_SHELVES) blk(R4([x0, ya, x1, yb]), z, z2, w);
+          // base box (bottom shelf to the bench): 2 rows x 3 columns of cubbies (William 2026-11-01)
+          const zb0 = BOOKCASE_SHELVES[0][1], zb1 = BOOKCASE_SHELVES[1][0], zm = (zb0 + zb1) / 2;
+          blk(R4([x0, ya, x1, yb]), zm - t / 2, zm + t / 2, w);
+          for (const k of [1, 2]) { const yc = ya + (yb - ya) * k / 3; blk(R4([x0, yc - t / 2, x1, yc + t / 2]), zb0, zb1, w); }
+        }
+      }
+    }
+  }
+
+  // Kitchen glass-wall columns, 5" x 5"
+  kitchenColumnPolys(D).forEach((pts, i) => {
+    const C = kitchenColumns(D)[i], [z0, z1] = capped(columnBase(C), HEIGHTS.head);
+    if (z1 > z0) add(prism(pts, z0, z1, C.material === 'aluminum' ? aluMat : mat('post')));
+    if (HEIGHTS.head > cut) add(cutCap(pts));
+  });
+
+  // A framing member along a plan segment, up to the cut, with a cut face if sliced.
+  function member(p, q, z0, z1, w, m) {
+    const dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy); if (L < 1e-4) return;
+    const nx = -dy / L * w / 2, ny = dx / L * w / 2, poly = [[p[0] + nx, p[1] + ny], [q[0] + nx, q[1] + ny], [q[0] - nx, q[1] - ny], [p[0] - nx, p[1] - ny]];
+    const [y0, y1] = capped(z0, z1); if (y1 <= y0) return;
+    add(prism(poly, y0, y1, m)); if (z1 > cut) add(cutCap(poly));
+  }
+
+  // Posts and carport columns
+  for (const c of D.columns) {
+    if (c.material === 'aluminum') continue;   // kitchen columns: drawn slab to header above
+    const topZ = PORCH.posts.includes(c.id) ? porchBeamBottom() : CARPORT.columns.includes(c.id) ? carportBeamBottom() : HEIGHTS.screen;
+    const [z0, z1] = capped(columnBase(c), topZ);   // posts bear on the slab, up to the beam they carry
+    if (z1 <= z0) continue;
+    const t = (c.angle || 0) * Math.PI / 180, ca = Math.cos(t), sa = Math.sin(t), hw = c.w / 2, hd = c.d / 2;
+    const pts = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => [c.at[0] + x * ca - y * sa, c.at[1] + x * sa + y * ca]);
+    if (c.material === 'brick') { const m = prism(pts, z0, z1, cladding('brickStack', false)); if (m) add(wallUV(m, pts[0][0], pts[0][1], ca, sa)); }
+    else add(prism(pts, z0, z1, mat('post')));
+    if (topZ > cut) add(cutCap(pts));
+  }
+
+  // Front porch framing (structure: drawn with or without the roof, cut by the cutaway)
+  for (const l of (ROOF && ROOF.leantos) || []) {
+    const F = leanToFrame(l), poly = clean(l.poly), us = poly.map(p => (p[0] - F.p0[0]) * F.e[0] + (p[1] - F.p0[1]) * F.e[1]);
+    const u0 = Math.min(...us), u1 = Math.max(...us), dmax = Math.max(...poly.map(F.dist));
+    const at = (u, d) => [F.p0[0] + F.e[0] * u + F.n[0] * d, F.p0[1] + F.e[1] * u + F.n[1] * d];
+    const under = (u, d) => { const p = at(u, d); return [p[0], p[1], F.zTop(p) - PORCH.deck]; };
+    const white = mat('trim', { side: THREE.DoubleSide });
+    // rafters, fascias and ledger are whole pieces (not cut), so they show only when the cutaway is above the porch roof
+    const framingOn = cut >= Math.max(F.zTop(at(0, 0)), F.zTop(at(0, dmax))) + 0.2;
+    // rafters
+    if (framingOn) for (let u = u0 + 0.1; u <= u1 - 0.05; u += PORCH.spacing) add(box3(under(u, 0), under(u, dmax), PORCH.rafterW, PORCH.rafterD, white));
+    // fascia at the low edge, ledger on the house wall
+    if (framingOn) add(box3(under(u0, 0.03), under(u1, 0.03), 0.06, PORCH.fasciaD - PORCH.deck + 0.12, white));
+    if (framingOn) add(box3(under(u1 - 0.03, 0), under(u1 - 0.03, dmax), 0.06, PORCH.fasciaD - PORCH.deck + 0.12, white));   // north end closed in with a fascia
+    { const a = under(u0, dmax - 0.06), b = under(u1, dmax - 0.06); if (framingOn) add(box3(a, b, 0.12, 0.75, white)); }
+    // beam on the posts, under the rafters
+    const dB = F.dist([PORCH.beamX, F.p0[1]]), bz = F.zTop(at(0, dB)) - PORCH.deck - PORCH.rafterD;
+    member(at(u0, dB), at(u1, dB), bz - PORCH.beamD, bz, PORCH.beamW, white);
+  }
+  function carportBeamBottom() { return CARPORT.lapBottom + CARPORT.beamUp; }
+  function porchBeamBottom() {
+    const l = ROOF && ROOF.leantos && ROOF.leantos[0]; if (!l) return HEIGHTS.screen;
+    const F = leanToFrame(l), d = F.dist([PORCH.beamX, F.p0[1]]), p = [F.p0[0] + F.n[0] * d, F.p0[1] + F.n[1] * d];
+    return F.zTop(p) - PORCH.deck - PORCH.rafterD - PORCH.beamD;
+  }
+
+  // Carport: dropped beams (stained, vertical-board faced) and the T&G ceiling boards
+  for (const bm of CARPORT.beams) {
+    member(bm.a, bm.b, carportBeamBottom(), HEIGHTS.ceiling, bm.w, mat('carportWood'));
+    if (cut > carportBeamBottom()) {   // vertical board joints on both faces
+      const L = Math.hypot(bm.b[0] - bm.a[0], bm.b[1] - bm.a[1]), e = [(bm.b[0] - bm.a[0]) / L, (bm.b[1] - bm.a[1]) / L], n = [-e[1], e[0]], v = [];
+      const zt = Math.min(HEIGHTS.ceiling, cut);
+      // outside: the top lap course continues around the beam
+      const W = { toXY: ([uu, vv]) => [bm.a[0] + e[0] * uu + n[0] * vv, bm.a[1] + e[1] * uu + n[1] * vv], vext: bm.out * bm.w / 2, sgn: bm.out };
+      const ls = lapSiding(W, 0, L, CARPORT.lapBottom, zt, mat('siding', { side: THREE.DoubleSide }), CARPORT.lapBottom, HEIGHTS.ceiling - CARPORT.lapBottom); if (ls) add(ls);   // one notched 12" piece
+      for (let u = 0.33; u < L; u += 0.33) for (const s of [-bm.out]) {   // inside: stained vertical boards
+        const x = bm.a[0] + e[0] * u + n[0] * s * (bm.w / 2 + 0.004), y = bm.a[1] + e[1] * u + n[1] * s * (bm.w / 2 + 0.004);
+        v.push(x, y, carportBeamBottom(), x, y, zt);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+      add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x4a3020 })));
+    }
+  }
+
+  // Grill + masonry chimney. Bricks well inside the lanai are the grill plinth (40"). The rest rises to the roof;
+  // above the roof only the stack shows: a closed box around the bricks behind the grill, without the thin wing
+  // that runs south toward the studio wall (William).
+  const lanai = D.rooms.find(r => r.name === 'Lanai');
+  const roofZ = HEIGHTS.eaveTop + 0.1;   // the low-slope roof over the lanai / studio there
+  for (const m of D.masonry) {
+    const units = m.units.map(clean);
+    const isPlinth = u => { const c = centroid(u); return lanai && inside(c, lanai.poly) && edgeDist(c, lanai.poly) > 0.3; };
+    for (const unit of units) {
+      const top = isPlinth(unit) ? HEIGHTS.grillPlinth : Math.min(HEIGHTS.chimney, roofZ);
+      const b = prism(unit, HEIGHTS.foundation, Math.min(top, cut), cladding('brickGrey', false));
+      if (b) add(wallUV(b, unit[0][0], unit[0][1], 1, 0));
+      if (top > cut) add(cutCap(unit));
+    }
+    // the stack: a box in the frame of the nearest lanai edge, around the non-plinth bricks
+    const stack = units.filter(u => !isPlinth(u));
+    if (stack.length && lanai) {   // pieces are capped to the cut, so the grill shows in the cutaway too
+      const c0 = centroid(stack.map(centroid));
+      let best = null;
+      for (let i = 0, j = lanai.poly.length - 1; i < lanai.poly.length; j = i++) {
+        const a = lanai.poly[j], b = lanai.poly[i], d = edgeDist(c0, [a, b]);
+        if (!best || d < best.d) best = { d, a, b };
+      }
+      const L = Math.hypot(best.b[0] - best.a[0], best.b[1] - best.a[1]), ex = (best.b[0] - best.a[0]) / L, ey = (best.b[1] - best.a[1]) / L;
+      const loc = p => [(p[0] - c0[0]) * ex + (p[1] - c0[1]) * ey, -(p[0] - c0[0]) * ey + (p[1] - c0[1]) * ex];
+      const pts = stack.flat().map(loc), us = pts.map(q => q[0]), vs = pts.map(q => q[1]);
+      const box = [[Math.min(...us), Math.min(...vs)], [Math.max(...us), Math.min(...vs)], [Math.max(...us), Math.max(...vs)], [Math.min(...us), Math.max(...vs)]]
+        .map(([u, v]) => [c0[0] + u * ex - v * ey, c0[1] + u * ey + v * ex]);
+      // stack top (William's photo): solid box, then a pier at each corner with an opening on every side between them,
+      // under an overhanging concrete cap; a metal flue liner shows inside. Pale weathered brick above the roof.
+      const T = CHIMNEY_TOP, U0 = Math.min(...us), U1 = Math.max(...us), V0 = Math.min(...vs), V1 = Math.max(...vs);
+      const L2 = (u0, u1, v0, v1) => [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => [c0[0] + u * ex - v * ey, c0[1] + u * ey + v * ex]);
+      const zCap = HEIGHTS.chimney - T.capThick, zOpen = zCap - T.openingHeight;
+      const brick = (poly, za, zb) => { const [y0, y1] = capped(za, zb); if (y1 <= y0) return;
+        const m = prism(poly, y0, y1, cladding('brickPale', false)); if (m) add(wallUV(m, poly[0][0], poly[0][1], ex, ey)); if (zb > cut) add(cutCap(poly)); };
+      brick(box, roofZ, zOpen);
+      for (const [a, b2] of [[U0, U0 + T.pierU], [U1 - T.pierU, U1]]) for (const [c, d] of [[V0, V0 + T.pierV], [V1 - T.pierV, V1]]) brick(L2(a, b2, c, d), zOpen, zCap);
+      const uc = (U0 + U1) / 2, vc = (V0 + V1) / 2, fl = T.flue / 2;
+      { const [y0, y1] = capped(zOpen - 0.2, zOpen + 0.6); if (y1 > y0) add(prism(L2(uc - fl, uc + fl, vc - fl, vc + fl), y0, y1, aluMat)); }
+      { const [y0, y1] = capped(zCap, HEIGHTS.chimney); const o = T.capOverhang;
+        if (y1 > y0) add(prism(L2(U0 - o, U1 + o, V0 - o, V1 + o), y0, y1, mat('concrete'))); }
+
+      // the grill, in the same frame: between the plinth legs, in front of the back wall
+      const W2 = (u, v) => [c0[0] + u * ex - v * ey, c0[1] + u * ey + v * ex];
+      const rect = (u0, u1, v0, v1) => [W2(u0, v0), W2(u1, v0), W2(u1, v1), W2(u0, v1)];
+      const legs = units.filter(isPlinth).map(u => u.map(loc));
+      if (legs.length >= 2) {
+        const cu = l => (Math.min(...l.map(q => q[0])) + Math.max(...l.map(q => q[0]))) / 2, mid = (Math.min(...us) + Math.max(...us)) / 2;
+        const west = legs.filter(l => cu(l) < mid).flat(), east = legs.filter(l => cu(l) >= mid).flat();
+        const uA = Math.max(...west.map(q => q[0])), uB = Math.min(...east.map(q => q[0]));
+        const vFront = Math.max(...legs.flat().map(q => q[1]));
+        // backsplash (William 2026-11-01): a wall across the line of the two narrow units in the legs (M1 units 2 and 10),
+        // closing the flue behind it; the grill and its cabinet stop at its face
+        const shorts = units.map(u => u.map(loc)).filter(q => Math.max(...q.map(p => p[1])) - Math.min(...q.map(p => p[1])) < 0.4);
+        const avg = a => a.reduce((t, x) => t + x, 0) / a.length;
+        const vS0 = shorts.length ? avg(shorts.map(q => Math.min(...q.map(p => p[1])))) : Math.min(...vs) + 0.4;
+        const vBack = shorts.length ? avg(shorts.map(q => Math.max(...q.map(p => p[1])))) : Math.min(...vs) + 0.67;
+        const z0 = floorAt(W2((uA + uB) / 2, vFront - 0.5)), pt = HEIGHTS.grillPlinth;
+        const box2 = (u0, u1, v0, v1, za, zb, m) => { const [y0, y1] = capped(z0 + za, z0 + zb); if (y1 > y0) add(prism(rect(u0, u1, v0, v1), y0, y1, m)); };
+        box2(uA, uB, vBack, vFront - 0.05, 0, GRILL.baseTop, mat('iron'));                       // door cabinet
+        box2(uA + 0.05, (uA + uB) / 2 - 0.02, vFront - 0.05, vFront - 0.02, 0.15, GRILL.baseTop - 0.1, mat('cut'));   // two doors
+        box2((uA + uB) / 2 + 0.02, uB - 0.05, vFront - 0.05, vFront - 0.02, 0.15, GRILL.baseTop - 0.1, mat('cut'));
+        // firebrick frames the grill opening: a band under the firebox and a jamb each side
+        const fb = 0.28, bu0 = uA + fb, bu1 = uB - fb, zb = GRILL.baseTop + fb;
+        box2(uA, uB, vBack, vFront, GRILL.baseTop, zb, mat('firebrick'));
+        box2(uA, bu0, vBack, vFront, zb, pt, mat('firebrick')); box2(bu1, uB, vBack, vFront, zb, pt, mat('firebrick'));
+        // the grill box: front door with a pull, the grate on top
+        box2(bu0, bu1, vBack, vFront - 0.1, zb, pt + 0.1, mat('iron'));
+        box2(bu0 + 0.1, bu1 - 0.1, vFront - 0.1, vFront - 0.06, zb + 0.1, pt - 0.15, mat('cut'));                  // door
+        box2(bu0 + 0.9, bu1 - 0.9, vFront - 0.06, vFront + 0.02, pt - 0.35, pt - 0.27, mat('appliance'));          // pull
+        for (let gu = bu0 + 0.1; gu < bu1 - 0.1; gu += 0.15) box2(gu, gu + 0.04, vBack + 0.1, vFront - 0.2, pt + 0.1, pt + 0.15, mat('cut'));   // grate bars
+        for (const l of [west, east]) {                                                            // ... and on each leg
+          const lu = l.map(q => q[0]), lv = l.map(q => q[1]);
+          box2(Math.min(...lu), Math.max(...lu), Math.min(...lv), Math.max(...lv), pt, pt + 0.08, mat('firebrick'));
+        }
+        { const [y0, y1] = capped(0, Math.min(HEIGHTS.chimney, roofZ) - z0);                           // the backsplash wall
+          const wb = (za, zb) => { const [q0, q1] = capped(z0 + za, z0 + zb); if (q1 <= q0) return;
+            const m = prism(rect(uA, uB, vS0, vBack), q0, q1, cladding('brickGrey', false)); if (m) add(wallUV(m, rect(uA, uB, vS0, vBack)[0][0], rect(uA, uB, vS0, vBack)[0][1], ex, ey)); };
+          if (y1 > y0) wb(0, Math.min(HEIGHTS.chimney, roofZ) - z0); }
+        box2(uA, uB, vBack, vBack + 0.04, pt, GRILL.backPanel[1], mat('firebrick'));   // firebrick back panel on its face, grill top to the hood
+        // hood: back against the chimney face, skirt then a pyramid with a vertical back
+        const vWall = vBack, uc = (uA + uB) / 2, hw = GRILL.hoodWidth / 2;
+        const hb = z0 + GRILL.hoodBottom, hs = hb + GRILL.hoodSkirt, ht = hb + GRILL.hoodHeight;
+        if (cut > hb) {
+          const R = rect(uc - hw, uc + hw, vWall, vWall + GRILL.hoodDepth);
+          const T = rect(uc - GRILL.hoodTopWidth / 2, uc + GRILL.hoodTopWidth / 2, vWall, vWall + 0.35);
+          const [s1, zt] = [Math.min(hs, cut), Math.min(ht, cut)], tris = [];
+          for (let i = 0; i < 4; i++) {
+            const a = R[i], b = R[(i + 1) % 4];
+            tris.push([[...a, hb], [...b, hb], [...b, s1]], [[...a, hb], [...b, s1], [...a, s1]]);   // skirt
+            if (cut > hs) { const c = T[(i + 1) % 4], d = T[i];
+              tris.push([[...a, s1], [...b, s1], [...c, zt]], [[...a, s1], [...c, zt], [...d, zt]]); }   // pyramid
+          }
+          tris.push(...fan(T.map(p => [...p, zt])), ...fan(R.map(p => [...p, hb])));                   // top cap, underside
+          add(triMesh(tris, mat('iron', { side: THREE.DoubleSide })));
+        }
+        // brick closes the chimney face above the hood, up to the roof
+        const [b0, b1] = capped(ht, roofZ);
+        if (b1 > b0) { const m = prism(rect(uA, uB, vWall - 0.67, vWall), b0, b1, cladding('brickGrey', false)); if (m) add(wallUV(m, ...W2(uA, vWall), ex, ey)); }
+      }
+    }
+  }
+
+  // Beams from the export (kind beam, `bottom` = underside height; the kitchen's are at the 6'-8" header)
+  for (const e of D.elements.filter(e => e.kind === 'beam'))
+    for (const l of e.lines) for (let i = 0; i + 3 < l.length; i += 2)
+      member([l[i], l[i + 1]], [l[i + 2], l[i + 3]], e.bottom ?? HEIGHTS.head, HEIGHTS.ceiling, 0.5, mat('wall'));   // drywall-wrapped header: wall paint, so it reads as one plane with the walls it lines up with (William)
+
+  // Exposed joists over the lanai and the kitchen addition, on one spacing. Structure, so drawn with or without the
+  // roof, and cut like the walls when the cutaway is below their top.
+  {
+    const room = D.rooms.find(r => r.name === LANAI_JOISTS.room), sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to);
+    if (room && sq) {
+      const L = Math.hypot(sq.b[0] - sq.a[0], sq.b[1] - sq.a[1]), ax = [(sq.b[0] - sq.a[0]) / L, (sq.b[1] - sq.a[1]) / L], jn = [ax[1], -ax[0]];
+      const along = p => (p[0] - sq.a[0]) * ax[0] + (p[1] - sq.a[1]) * ax[1];
+      const joistZones = [clean(room.poly), ...LANAI_JOISTS.extra];   // lanai + kitchen addition only (they stop at the kitchen beams)
+      const S = LANAI_JOISTS.spacing, tA = along(LANAI_JOISTS.alignTo);   // grid phase: one joist through alignTo
+      const T0 = tA - Math.ceil((tA - Math.min(...joistZones.flat().map(along))) / S) * S;
+      for (const poly of joistZones) {
+      const t1 = Math.max(...poly.map(along));
+      for (let t = T0; t < t1; t += S) {
+        const o = [sq.a[0] + ax[0] * t, sq.a[1] + ax[1] * t], hits = [];
+        for (let i = 0; i < poly.length; i++) {   // where the joist line crosses the lanai outline
+          const a = poly[i], b = poly[(i + 1) % poly.length], ex = b[0] - a[0], ey = b[1] - a[1];
+          const den = jn[0] * ey - jn[1] * ex; if (Math.abs(den) < 1e-9) continue;
+          const k = ((a[0] - o[0]) * ey - (a[1] - o[1]) * ex) / den, m = ((a[0] - o[0]) * jn[1] - (a[1] - o[1]) * jn[0]) / den;
+          if (m >= 0 && m <= 1) hits.push(k);
+        }
+        hits.sort((x, y) => x - y);
+        for (let i = 0; i + 1 < hits.length; i += 2) {
+          const p = [o[0] + jn[0] * hits[i], o[1] + jn[1] * hits[i]], q = [o[0] + jn[0] * hits[i + 1], o[1] + jn[1] * hits[i + 1]];
+          member(p, q, HEIGHTS.ceiling - LANAI_JOISTS.depth, HEIGHTS.ceiling, LANAI_JOISTS.width, mat('trim'));
+        }
+      }
+      }
+    }
+  }
+
+
+  // Furniture, casework, fixtures
+  if (opts.furn) for (const e of D.elements) {
+    if (e.kind === 'beam') continue;   // drawn as framing members above
+    if (KITCHEN_HANDLED.has(e.id)) continue;   // drawn by the kitchen builder below
+    if (e.kind === 'paving' && !/planter/i.test(e.name)) continue;
+    if (e.variant === 'bunk') { drawBunk(e); continue; }
+    if (/bunk ladder/i.test(e.name)) continue;   // drawn with its bunk bed
+    if (/queen bed|king bed/i.test(e.name) && e.lines.length >= 3) { drawBed(e); continue; }
+    if (e.id === DINING_CHAIRS.id) { drawArmchairs(e); continue; }
+    { // items from the floor plan (William 2026-11-01): seats with a `back`, rugs, floating `shelves`, wall items with `z`, AHU
+      const p = flat2pts(e.lines[0]), xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const slab = (za, zb, m, o = {}) => { const [a, b] = capped(za, zb); if (b > a) add(prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], a, b, m, o)); };
+      if (e.back) { drawSeat(x0, y0, x1, y1, e.back); continue; }
+      if (/^rug/i.test(e.name)) { slab(0, 0.04, mat(e.color || 'wood'), { shadow: false }); continue; }
+      if (e.shelves) { const t = e.thick || 1.5 / 12; for (const z of e.shelves) slab(z - t / 2, z + t / 2, mat(e.color || 'wood')); continue; }
+      if (e.z) { slab(e.z[0], e.z[1], mat('rangeBlack')); continue; }
+      if (/^AHU unit/i.test(e.name)) { slab(0, e.height ?? 4.5, mat('appliance_white')); continue; }
+    }
+    const rule = ELEMENT_RULES.find(r => r.re.test(e.name)) || { solid: 'none' };
+    if (rule.solid === 'skip') continue;
+    const val = v => typeof v === 'function' ? v() : v;
+    if (rule.solid === 'none') {
+      const z = val(rule.at) ?? 0.02;
+      if (z < cut) add(polylines(e.lines, z + 0.01));
+      continue;
+    }
+    let shapes = (e.fills || []).map(flat2pts);
+    if (!shapes.length) {
+      const closed = e.lines.map(flat2pts).filter(isClosed);
+      shapes = rule.solid === 'all' ? closed : closed.sort((a, b) => Math.abs(area(clean(b))) - Math.abs(area(clean(a)))).slice(0, 1);
+    }
+    const [z0, z1] = capped(val(rule.z0), val(rule.z1));
+    if (z1 <= z0) continue;
+    for (let s of shapes) {
+      if (rule.proud) { const c = centroid(clean(s)); s = s.map(([x, y]) => { const d = Math.hypot(x - c[0], y - c[1]) || 1; return [x + (x - c[0]) / d * 0.02, y + (y - c[1]) / d * 0.02]; }); }
+      if (rule.kick) {   // 4" toe kick, 3" deep all round
+        add(prism(offsetPoly(clean(s), clean(s).map(() => -0.25)), z0, Math.min(z0 + 4 / 12, z1), mat('joint')));
+        add(prism(s, Math.min(z0 + 4 / 12, z1), z1, mat(rule.color)));
+      } else add(prism(s, z0, z1, mat(rule.color)));
+      if (e.id === DINING_TABLE.id) { const c = centroid(clean(s)), T = DINING_TABLE, h = T.size / 2;
+        for (const dy of [-T.spacing / 2, T.spacing / 2]) add(prism([[c[0] - h, c[1] + dy - h], [c[0] + h, c[1] + dy - h], [c[0] + h, c[1] + dy + h], [c[0] - h, c[1] + dy + h]], 0, z0, aluMat));
+        continue; }
+      if (e.id === BOOTH_BACK.id && e.lines[1]) {   // back: between the outline and the inner line
+        const o = flat2pts(e.lines[0]), i = flat2pts(e.lines[1]);
+        const [b0, b1] = capped(z0, BOOTH_BACK.height); if (b1 > b0) add(prism([o[0], [o[o.length - 1][0], o[0][1]], o[o.length - 1], i[2], i[1], i[0]], b0, b1, mat(rule.color)));
+      }
+      if (rule.pedestal) { const c = centroid(clean(s)); add(prism([[c[0]-.3,c[1]-.3],[c[0]+.3,c[1]-.3],[c[0]+.3,c[1]+.3],[c[0]-.3,c[1]+.3]], 0, z0, mat('wood'))); }
+    }
+    add(polylines(e.lines, z1 + 0.01));
+  }
+
+  // Roof: traced hips + low-slope areas (model/roof.json), plus the chosen option over the new wing
+  if (roofShown && ROOF) {
+    const room = D.rooms.find(r => r.name === LANAI_JOISTS.room), sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to);
+    const carportCut = r => r.name === CARPORT.room ? clipU(clean(r.poly), -Infinity, CARPORT.ceilingMaxX) : clean(r.poly);   // soffit east of the front beam
+    const zones = [...D.rooms.filter(r => !/shed/i.test(r.name)).map(carportCut), ...LANAI_JOISTS.extra,
+                   ...(ROOF.leantos || []).map(l => clean(l.poly))];   // no main-roof soffit under the open porch framing
+    soffitMat(zones);
+    // the main roof is left out under the popped-up porch roof (its plane runs back ~2' past the house wall)
+    if (!ROOF_MAT) ROOF_MAT = maskMat(COLORS.shingle, (ROOF.leantos || []).map(l => clean(l.poly).map(p => [p[0] < 57 ? p[0] - 1.5 : p[0] - 0.02, p[1] + (p[1] < 50 ? 0.02 : -0.02)])));
+    for (const r of D.rooms) {   // ceilings at 8'-0" (the lanai has its exposed deck instead; the carport is wood)
+      if (/shed/i.test(r.name)) continue;
+      if (r.name === LANAI_JOISTS.room) {   // white-painted T&G deck (lanai + the old lanai part of the kitchen), boards square to the joists
+        const sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to), L = Math.hypot(sq.b[0] - sq.a[0], sq.b[1] - sq.a[1]);
+        const ax = [(sq.b[0] - sq.a[0]) / L, (sq.b[1] - sq.a[1]) / L], nn = [-ax[1], ax[0]], v = [];
+        for (const poly of [clean(r.poly), ...LANAI_JOISTS.extra]) {
+          add(prism(poly, HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat('trim'), { shadow: false }));
+          const off = p => p[0] * nn[0] + p[1] * nn[1], o0 = Math.min(...poly.map(off)), o1 = Math.max(...poly.map(off));
+          for (let k = o0 + CARPORT.boardW; k < o1; k += CARPORT.boardW) {
+            const hits = [];
+            for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], fa = off(a) - k, fb = off(b) - k;
+              if ((fa < 0) !== (fb < 0)) { const t = fa / (fa - fb); hits.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); } }
+            hits.sort((p, q) => (p[0] * ax[0] + p[1] * ax[1]) - (q[0] * ax[0] + q[1] * ax[1]));
+            for (let i = 0; i + 1 < hits.length; i += 2) v.push(hits[i][0], hits[i][1], HEIGHTS.ceiling, hits[i + 1][0], hits[i + 1][1], HEIGHTS.ceiling);
+          }
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+        add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc9c6bf })));
+        continue;
+      }
+      add(prism(carportCut(r), HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
+      if (r.name === CARPORT.room) {   // T&G board joints, boards running east-west
+        const cp = carportCut(r), xs = cp.map(p => p[0]), ys = cp.map(p => p[1]), v = [];
+        for (let y = Math.min(...ys) + CARPORT.boardW; y < Math.max(...ys); y += CARPORT.boardW) v.push(Math.min(...xs), y, HEIGHTS.ceiling, Math.max(...xs), y, HEIGHTS.ceiling);
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+        add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x5a3b24 })));
+      }
+    }
+    for (const h of ROOF.hips) add(hipRoof(h.rect));
+    for (const f of ROOF.flats) add(flatRoof(f.poly, !!f.exposed));
+    for (const z of LANAI_JOISTS.extra) add(prism(z, HEIGHTS.ceiling + 0.02, HEIGHTS.ceiling + 0.07, mat('trim')));   // exposed deck (a hair above the lanai deck where they overlap)
+    for (const l of ROOF.leantos || []) add(leanTo(l));
+    const r = ROOF.addition.rect;
+    if (opts.wingRoof === 'hip') {
+      add(hipRoof(r));
+      if (ROOF.addition.cross) add(hipRoof(ROOF.addition.cross.rect));   // the east-west ridge that dies into the main roof
+    } else add(flatRoof([[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]));
+  }
+
+  // Seats (sofas, recliners) from elements with a `back` side: base 6" off the floor on four wood feet, backrest, arms on the
+  // two short ends (William 2026-11-01)
+  function drawSeat(x0, y0, x1, y1, back) {
+    const lift = 0.5, fs = 2.5 / 12, fi = 0.2;
+    const [a, b] = capped(lift, 1.4); if (b > a) add(prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], a, b, mat('upholstery')));
+    const [fa, fb] = capped(0, lift);
+    if (fb > fa) for (const [fx, fy] of [[x0 + fi, y0 + fi], [x1 - fi - fs, y0 + fi], [x1 - fi - fs, y1 - fi - fs], [x0 + fi, y1 - fi - fs]])
+      add(prism([[fx, fy], [fx + fs, fy], [fx + fs, fy + fs], [fx, fy + fs]], fa, fb, mat('wood')));
+    const t = 0.75, R = { N: [x0, y1 - t, x1, y1], S: [x0, y0, x1, y0 + t], E: [x1 - t, y0, x1, y1], W: [x0, y0, x0 + t, y1] }[back];
+    const [c, d] = capped(1.4, 2.6); if (d > c) add(prism([[R[0], R[1]], [R[2], R[1]], [R[2], R[3]], [R[0], R[3]]], c, d, mat('upholstery')));
+    const [e, f] = capped(1.4, 2.0);
+    if (f > e) for (const A of back === 'N' || back === 'S' ? [[x0, y0, x0 + 0.5, y1], [x1 - 0.5, y0, x1, y1]] : [[x0, y0, x1, y0 + 0.5], [x0, y1 - 0.5, x1, y1]])
+      add(prism([[A[0], A[1]], [A[2], A[1]], [A[2], A[3]], [A[0], A[3]]], e, f, mat('upholstery')));
+  }
+  // Dining armchairs (DINING_CHAIRS), one per outline in the element
+  function drawArmchairs(e) {
+    const C = DINING_CHAIRS, tb = D.elements.find(x => x.id === C.table);
+    const tc = tb ? centroid(clean(flat2pts((tb.fills || tb.lines)[0]))) : null;
+    const wood = mat(C.wood), cushion = mat(C.seat), L = C.leg;
+    for (const l of e.lines) {
+      const p = flat2pts(l), xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const dx = tc ? cx - tc[0] : 0, dy = tc ? cy - tc[1] : -1;
+      const back = x1 - x0 > y1 - y0 ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'N' : 'S');   // the outline's long side runs front to back; back away from the table
+      const along = back === 'N' || back === 'S', W = along ? x1 - x0 : y1 - y0, Dp = along ? y1 - y0 : x1 - x0;
+      // s across the chair (0..W), t from the back (0..Dp) -> plan polygon
+      const R = (s0, s1, t0, t1) => { let r;
+        if (back === 'N') r = [x0 + s0, y1 - t1, x0 + s1, y1 - t0]; else if (back === 'S') r = [x0 + s0, y0 + t0, x0 + s1, y0 + t1];
+        else if (back === 'E') r = [x1 - t1, y0 + s0, x1 - t0, y0 + s1]; else r = [x0 + t0, y0 + s0, x0 + t1, y0 + s1];
+        return [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]; };
+      const blk = (poly, z0, z1, m) => { const [a, b] = capped(z0, z1); if (b > a) add(prism(poly, a, b, m)); };
+      const sL = [0.04, 0.04 + L], sR = [W - 0.04 - L, W - 0.04], tB = [0.05, 0.05 + L], tF = [Dp - 0.08 - L, Dp - 0.08];
+      for (const sx of [sL, sR]) {
+        blk(R(sx[0], sx[1], tB[0], tB[1]), 0, C.backTop, wood);                        // back posts, up to the top rail
+        blk(R(sx[0], sx[1], tF[0], tF[1]), 0, C.armTop - 0.1, wood);                   // front legs, up to the arm
+        blk(R(sx[0] - 0.03, sx[1] + 0.03, 0.03, Dp - 0.04), C.armTop - 0.1, C.armTop, wood);   // arm
+      }
+      blk(R(0.04, W - 0.04, 0.05, Dp - 0.08), 1.25, C.seatTop - 0.18, wood);           // seat frame / apron
+      blk(R(0.1, W - 0.1, 0.18, Dp - 0.06), C.seatTop - 0.18, C.seatTop, cushion);      // upholstered seat
+      // woven back between the posts: top and bottom rails, then straps over and under each other
+      const s0 = sL[1], s1 = sR[0], zb0 = C.seatTop + 0.25, zb1 = C.backTop - 0.15, n = C.weave;
+      blk(R(s0, s1, tB[0] + 0.02, tB[1] - 0.02), zb1, C.backTop, wood);
+      blk(R(s0, s1, tB[0] + 0.02, tB[1] - 0.02), zb0 - 0.1, zb0, wood);
+      const sw = (s1 - s0) / n, zw = (zb1 - zb0) / n, g = 0.012;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {   // basketweave: a checkerboard of strap crossings, alternately proud
+        const up = (i + j) % 2 === 0, t0 = tB[0] + (up ? 0.015 : 0.035);
+        blk(R(s0 + sw * i + g, s0 + sw * (i + 1) - g, t0, t0 + 0.04), zb0 + zw * j + g, zb0 + zw * (j + 1) - g, wood);
+      }
+    }
+  }
+
+  // Beds: wood platform on a recessed base, mattress, folded duvet, two pillows, upholstered headboard (head = pillow side)
+  function drawBed(e) {
+    const bb = l => { const p = flat2pts(l), xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const [x0, y0, x1, y1] = bb(e.lines[0]), P = bb(e.lines[1]), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const px = (P[0] + P[2]) / 2 - cx, py = (P[1] + P[3]) / 2 - cy;
+    const head = Math.abs(px) > Math.abs(py) ? (px > 0 ? 'E' : 'W') : (py > 0 ? 'N' : 'S');
+    // a sub-rectangle in bed coordinates: s across (0..1 of the width), t from the head (ft)
+    const along = head === 'N' || head === 'S', W = along ? x1 - x0 : y1 - y0;
+    const R = (a, b, t0, t1) => { // a, b: offsets in from each long side (ft); t0..t1 from the head (ft)
+      let r;
+      if (head === 'N') r = [x0 + a, y1 - t1, x1 - b, y1 - t0]; else if (head === 'S') r = [x0 + a, y0 + t0, x1 - b, y0 + t1];
+      else if (head === 'E') r = [x1 - t1, y0 + a, x1 - t0, y1 - b]; else r = [x0 + t0, y0 + a, x0 + t1, y1 - b];
+      return [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]; };
+    const L = along ? y1 - y0 : x1 - x0, blk = (poly, z0, z1, m) => { const [a, b] = capped(z0, z1); if (b > a) add(prism(poly, a, b, m)); };
+    blk(R(0.25, 0.25, 0.3, L - 0.25), 0, 0.5, mat('joint'));                 // recessed base
+    blk(R(0, 0, 0.17, L), 0.5, 1.0, mat('wood'));                           // platform frame
+    blk(R(0.05, 0.05, 0.22, L - 0.05), 1.0, 1.85, mat('bed'));              // mattress
+    blk(R(0.02, 0.02, 2.3, L - 0.02), 1.85, 1.95, mat(0xd8d2c6));           // duvet over the foot
+    blk(R(0.02, 0.02, 2.0, 2.3), 1.85, 2.05, mat(0xd8d2c6));                // turned-down fold
+    const pw = (W - 0.5) / 2;
+    blk(R(0.2, W - 0.2 - pw, 0.3, 1.55), 1.85, 2.35, mat('porcelain'));      // pillows
+    blk(R(W - 0.2 - pw, 0.2, 0.3, 1.55), 1.85, 2.35, mat('porcelain'));
+    blk(R(-0.15, -0.15, 0, 0.17), 0, 4.0, mat('upholstery'));               // headboard
+  }
+  // Bunk bed (element variant 'bunk'): 3" corner posts to the full height, rails and slatted decks at two levels, a
+  // mattress with duvet and pillow on each, slatted end panels, upper guardrails (open at the ladder), and the leaning
+  // ladder from the element named "Bunk ladder" (stiles + flat treads). Head = side of the second outline (pillow).
+  function drawBunk(e) {
+    const bb = l => { const p = flat2pts(l), xs = p.map(q => q[0]), ys = p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+    const [x0, y0, x1, y1] = bb(e.lines[0]), P = bb(e.lines[1]), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const px = (P[0] + P[2]) / 2 - cx, py = (P[1] + P[3]) / 2 - cy;
+    const head = Math.abs(px) > Math.abs(py) ? (px > 0 ? 'E' : 'W') : (py > 0 ? 'N' : 'S');
+    const along = head === 'N' || head === 'S', W = along ? x1 - x0 : y1 - y0, L = along ? y1 - y0 : x1 - x0;
+    const R = (a, b, t0, t1) => { // a, b: offsets in from the x0/y0 and x1/y1 long sides (ft); t0..t1 from the head (ft)
+      let r;
+      if (head === 'N') r = [x0 + a, y1 - t1, x1 - b, y1 - t0]; else if (head === 'S') r = [x0 + a, y0 + t0, x1 - b, y0 + t1];
+      else if (head === 'E') r = [x1 - t1, y0 + a, x1 - t0, y1 - b]; else r = [x0 + t0, y0 + a, x0 + t1, y1 - b];
+      return [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]; };
+    const lad = D.elements.find(x => /bunk ladder/i.test(x.name)), LB = lad ? bb(lad.lines[0]) : null;
+    const ladB = LB ? (along ? (LB[0] + LB[2]) / 2 > cx : (LB[1] + LB[3]) / 2 > cy) : true;   // ladder on the x1/y1 side?
+    const S = (n, f, t0, t1) => ladB ? R(f, n, t0, t1) : R(n, f, t0, t1);                    // n: in from the open side, f: from the wall side
+    const blk = (poly, z0, z1, m) => { const [a, b] = capped(z0, z1); if (b > a) add(prism(poly, a, b, m)); };
+    const wood = mat(e.color || 'wood'), H = e.height ?? 5.5, ps = 0.25, rt = 0.125, o = (ps - rt) / 2;
+    const lowRail = [0.5, 0.9], upRail = [3.85, 4.3], mid = [4.85, 5.0], top = [H - 0.25, H];
+    for (const a of [0, W - ps]) for (const t of [0, L - ps]) blk(R(a, W - ps - a, t, t + ps), 0, H, wood);   // posts
+    const sideRail = (z, n0 = ps, n1 = L - ps, open = true, wall = true) => {   // long rails on the open / wall side
+      if (open) blk(S(o, W - o - rt, n0, n1), z[0], z[1], wood);
+      if (wall) blk(S(W - o - rt, o, n0, n1), z[0], z[1], wood); };
+    const endRail = z => { blk(R(ps, ps, o, o + rt), z[0], z[1], wood); blk(R(ps, ps, L - o - rt, L - o), z[0], z[1], wood); };
+    const duvet = mat(0xd8d2c6);
+    for (const [rail, deckTop, matTop] of [[lowRail, 0.85, 1.5], [upRail, 4.15, 4.65]]) {
+      sideRail(rail); endRail(rail);
+      const n = Math.floor((L - 2 * ps) / 0.45), sp = (L - 2 * ps) / n;   // slats across the deck, ~3-1/2" with gaps
+      for (let i = 0; i < n; i++) blk(R(o + rt, o + rt, ps + i * sp + 0.07, ps + (i + 1) * sp - 0.07), deckTop - 0.06, deckTop, wood);
+      const m = o + rt + 0.01;
+      blk(R(m, m, m, L - m), deckTop, matTop, mat('bed'));                       // mattress
+      blk(R(m - 0.01, m - 0.01, 1.9, L - m + 0.01), matTop, matTop + 0.08, duvet);  // duvet over the foot
+      blk(R(m - 0.01, m - 0.01, 1.6, 1.9), matTop, matTop + 0.12, duvet);           // turned-down fold
+      blk(R((W - 2.2) / 2, (W - 2.2) / 2, m + 0.1, m + 1.25), matTop, matTop + 0.4, mat('porcelain')); // pillow (26")
+    }
+    for (const z of [[1.75, 1.95], [2.3, 2.5], [2.85, 3.05], mid, top]) endRail(z);   // slatted ends
+    // upper guardrails: full length on the wall side; the open side stops at the ladder, with a short post at the gap
+    let g0 = ps, g1 = L - ps;
+    if (LB) {
+      const tl = along ? (head === 'N' ? [y1 - LB[3], y1 - LB[1]] : [LB[1] - y0, LB[3] - y0]) : (head === 'E' ? [x1 - LB[2], x1 - LB[0]] : [LB[0] - x0, LB[2] - x0]);
+      if (tl[0] < L / 2) { g0 = tl[1] + ps; blk(S(0, W - ps, tl[1], tl[1] + ps), upRail[1], H, wood); }
+      else { g1 = tl[0] - ps; blk(S(0, W - ps, tl[0] - ps, tl[0]), upRail[1], H, wood); }
+    }
+    for (const z of [mid, top]) { sideRail(z, ps, L - ps, false, true); sideRail(z, g0, g1, true, false); }
+    if (!LB) return;
+    // ladder: leans out from the open side, stiles from the floor to the top rail, treads ~11" apart
+    const edge = along ? (ladB ? x1 : x0) : (ladB ? y1 : y0), sgn = ladB ? 1 : -1;
+    const reach = along ? LB[2] - LB[0] : LB[3] - LB[1], span = along ? [LB[1], LB[3]] : [LB[0], LB[2]];
+    const pt = (u, d) => along ? [edge + sgn * d, u] : [u, edge + sgn * d];
+    const dAt = z => (reach - 0.12) - (reach - 0.24) * z / H;   // stile centre's distance out from the bed at height z
+    const bar = (A, za, B, zb, w, dd, m) => {
+      if (zb > cut) { const k = (cut - za) / (zb - za); if (k <= 0) return; B = [A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k]; zb = cut; }
+      const ex = new THREE.Vector3(B[0] - A[0], B[1] - A[1], zb - za), len = ex.length(); ex.normalize();
+      const ey = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, 1), ex).normalize(), ez = new THREE.Vector3().crossVectors(ex, ey);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, w, dd), m);
+      mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(ex, ey, ez));
+      mesh.position.set((A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (za + zb) / 2); mesh.castShadow = true; mesh.receiveShadow = true; add(mesh);
+    };
+    const sw = 1.25 / 12, sd = 0.25;
+    for (const u of [span[0] + sw / 2, span[1] - sw / 2]) bar(pt(u, dAt(0)), 0, pt(u, dAt(H)), H, sw, sd, wood);
+    for (let z = 1.0; z < H - 0.4; z += 0.92) {
+      const d = dAt(z), q = [pt(span[0] + sw, d - 0.13), pt(span[1] - sw, d - 0.13), pt(span[1] - sw, d + 0.13), pt(span[0] + sw, d + 0.13)];
+      blk(q, z - 0.07, z, wood);
+    }
+  }
+  // South courtyard utilities (UTILITIES)
+  if (opts.furn) for (const U of UTILITIES) {
+    const [x0, y0, x1, y1] = U.box, zg = U.g ? (opts.terrain && SURVEY ? groundAt((x0 + x1) / 2, (y0 + y1) / 2) : HEIGHTS.grade) : 0;
+    const [z0, z1] = capped(zg + U.z[0] - (U.g && U.z[0] === 0 ? 0.3 : 0), zg + U.z[1]);
+    if (z1 > z0) add(prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], z0, z1, mat(U.m)));
+  }
+  if (opts.landscape && D.landscape) buildLandscape(D, add, capped, cut);
+  // Trees (survey positions and trunk sizes; heights and spreads estimated)
+  if (opts.trees && SURVEY) for (const t of SURVEY.trees) {
+    const g = new THREE.Group(); g.position.set(t.at[0], t.at[1], groundAt(t.at[0], t.at[1]));
+    const trunkH = t.kind === 'pine' ? t.height * 0.8 : t.kind === 'palm' ? t.height * 0.85 : t.height * 0.4;
+    const dia = t.dbh_in / 12;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(dia * 0.4, dia * 0.6, trunkH, 10), mat('bark'));
+    trunk.rotation.x = Math.PI / 2; trunk.position.z = trunkH / 2; trunk.castShadow = true;
+    g.add(trunk);
+    if (cut < Infinity) {   // cutaway: trunk stub + dashed drip line, so the plan stays readable
+      trunk.scale.y = Math.min(1, (cut - g.position.z) / trunkH); trunk.position.z = trunkH * trunk.scale.y / 2;
+      const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(t.canopy * Math.cos(a), t.canopy * Math.sin(a)); }
+      const dl = polylines([ring], 0.08, dripMat); dl.computeLineDistances(); g.add(dl);
+      add(g);
+      if (opts.labels) label(t.name, t.at, 1, 'tree');
+      continue;
+    }
+    const crownH = t.kind === 'pine' ? t.height * 0.3 : t.kind === 'palm' ? t.height * 0.3 : t.height * 0.7;
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat(t.kind === 'pine' ? 'pine' : t.kind === 'palm' ? 'palm' : 'leaves', { flatShading: true, transparent: true, opacity: 0.45, depthWrite: false }));
+    crown.scale.set(t.canopy, t.canopy, crownH / 2);
+    crown.position.z = t.height - crownH / 2;
+    crown.castShadow = true;
+    g.add(crown);
+    add(g);
+    if (opts.labels && !roofShown) label(t.name, t.at, t.height + 2, 'tree');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Site plan (house.json `landscape`: the floor-plan project's revised site plan, plan feet). Flat surfaces are draped on
+// the survey ground; raised planters, decks, fences, the Bijou tee-pees and plants are built up from it. Heights are
+// assumptions (LANDSCAPE); see docs/DECISIONS.md.
+const LANDSCAPE = {
+  slab: 0.15, flat: 0.05, mulch: 0.07, foliage: 1.4, shrubFactor: 1.3,
+  planterWall: 1.5, curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
+  privacy: 6, hogwire: 4, gate: 5.5, teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
+  tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
+};
+// a polygon (with holes) as a surface following the ground, `lift` above it (triangles split to <= 3 ft)
+function drapeArea(poly, holes, lift, material) {
+  const shape = new THREE.Shape(clean(poly).map(p => new THREE.Vector2(p[0], p[1])));
+  for (const h of holes || []) shape.holes.push(new THREE.Path(clean(h).map(p => new THREE.Vector2(p[0], p[1]))));
+  const g0 = new THREE.ShapeGeometry(shape).toNonIndexed();
+  const pos = g0.attributes.position.array, out = [], mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const split = t => {
+    const L = Math.max(...[0, 1, 2].map(k => Math.hypot(t[k][0] - t[(k + 1) % 3][0], t[k][1] - t[(k + 1) % 3][1])));
+    if (L <= 3) { out.push(t); return; }
+    const [a, b, c] = t, ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+    for (const q of [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]) split(q);
+  };
+  for (let i = 0; i < pos.length; i += 9) split([[pos[i], pos[i + 1]], [pos[i + 3], pos[i + 4]], [pos[i + 6], pos[i + 7]]]);
+  g0.dispose();
+  const v = []; for (const t of out) for (const p of t) v.push(p[0], p[1], groundAt(p[0], p[1]) + lift);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, material); m.receiveShadow = true; return m;
+}
+const dens = (pts, step = 2) => { const o = []; for (let i = 0; i + 1 < pts.length; i++) { const [a, b] = [pts[i], pts[i + 1]], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step));
+  for (let k = 0; k < n; k++) o.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); } o.push(pts.at(-1)); return o; };
+// a straight member (post, leg, beam) between two 3D points, square section `w`
+function member(a, b, w, material) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), L = A.distanceTo(B);
+  if (L < 1e-3) return null;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, w, L), material);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), B.clone().sub(A).normalize());
+  m.castShadow = true; return m;
+}
+const lsJointMat = new THREE.LineBasicMaterial({ color: 0x6f6b64 });
+const lsLaneMat = new THREE.LineDashedMaterial({ color: 0xd9822b, dashSize: 1.5, gapSize: 1 });
+const lsPoolMat = new THREE.LineDashedMaterial({ color: COLORS.pool, dashSize: 2, gapSize: 1.2 });
+function buildLandscape(D, add, capped, cut) {
+  const items = D.landscape, by = {}; for (const it of items) by[it.id] = it;
+  const LS = LANDSCAPE, gC = poly => { const c = centroid(clean(poly)); return groundAt(c[0], c[1]); };
+  const surf = { concrete: mat('concrete'), deck: mat('deckLs'), bed: mat('mulch'), planting: mat('foliage', { flatShading: true }),
+                 gravel: mat('gravelLs'), pebbles: mat('shell'), turf: mat('turf'), sod: mat('grass') };
+  const box = (poly, z0, z1, m, holes) => { const [a, b] = capped(z0, z1); if (b > a) add(prism(poly, a, b, m, { holes: holes || [] })); };
+  // raised planters: the bed whose outline lies inside a "... planter wall" sits up at the wall's top
+  const wallPolys = items.filter(it => /planter wall$/i.test(it.name || '')).map(w => clean(w.poly));
+  const raised = new Set(items.filter(it => it.kind === 'area' && it.mat === 'bed' && /planter/i.test(it.name || '') && !/pot/i.test(it.name || '')
+    && wallPolys.some(W => clean(it.poly).every(p => Math.hypot(...[0, 1].map(k => p[k] - centroid(W)[k])) < 60))).map(it => it.id));
+  const upper = items.find(x => /overlapping deck/i.test(x.name || ''));
+  for (const it of items) {
+    const nm = it.name || '';
+    if (it.kind === 'area') {
+      const P = it.poly, H = it.holes, g0 = gC(P);
+      if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, g0 + LS.planterWall, mat('wall'), H); continue; }
+      if (nm === 'Play zone curb') { box(P, g0 - 0.3, g0 + LS.curb, mat('concrete'), H); continue; }
+      if (it.mat === 'deck') {
+        let top = g0 + LS.deckLow;
+        if (it === upper) top += LS.deckStep;
+        else if (nm === 'Built-in bench' && upper) top = gC(upper.poly) + LS.deckLow + LS.deckStep + LS.bench;
+        else if (nm === 'Bridge') top = g0 + LS.bridge;
+        else if (/beam/i.test(nm)) top = g0 + LS.beam6x6;
+        else if (/log/i.test(nm)) top = g0 + LS.log;
+        else if (/box planter|trash/i.test(nm)) top = g0 + 2;
+        box(P, top - 0.25, top, surf.deck, H); continue;
+      }
+      if (it.mat === 'planting') {
+        const up = it.of && raised.has(it.of) ? LS.planterWall - 0.15 : LS.mulch;
+        box(P, g0 + up, g0 + up + LS.foliage, surf.planting, H); continue;
+      }
+      if (it.mat === 'bed' && raised.has(it.id)) { box(P, g0 - 0.3, g0 + LS.planterWall - 0.15, surf.bed, H); continue; }
+      if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
+      const lift = it.mat === 'concrete' ? LS.slab : it.mat === 'bed' ? LS.mulch : it.mat === 'sod' ? LS.flat - 0.02 : LS.flat;
+      add(drapeArea(P, H, lift, surf[it.mat] || mat('grass')));
+      continue;
+    }
+    if (it.kind === 'rock') { const g0 = gC(it.poly); box(it.poly, g0 - 0.2, g0 + LS.rock, mat('rock', { flatShading: true })); continue; }
+    if (it.kind === 'circle') {
+      const g0 = groundAt(it.c[0], it.c[1]), ring = [];
+      for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ring.push([it.c[0] + it.r * Math.cos(a), it.c[1] + it.r * Math.sin(a)]); }
+      if (it.mat === 'planting' || it.mat === 'bed') { add(drapeArea(ring, null, LS.mulch + 0.01, surf[it.mat])); continue; }
+      const h = /urn/i.test(nm) ? LS.urn : /pot/i.test(nm) ? LS.pot : /fountain/i.test(nm) ? LS.fountain : /fire pit/i.test(nm) ? LS.firepit
+        : /boulder/i.test(nm) ? LS.rock : LS.slab;
+      if (!it.mat && !/pot/i.test(nm)) continue;
+      box(ring, g0 - 0.2, g0 + h, /boulder/i.test(nm) ? mat('rock', { flatShading: true }) : /urn|pot|fountain/i.test(nm) ? mat('wall') : surf.concrete);
+      continue;
+    }
+    if (it.kind === 'plant') {
+      if (/keep/i.test(nm) && it.sym === 'tree') continue;           // existing trees come from the survey
+      const grp = new THREE.Group(); grp.position.set(it.c[0], it.c[1], groundAt(it.c[0], it.c[1]));
+      if (it.sym === 'shrub') {
+        const s = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), mat('foliage', { flatShading: true }));
+        s.scale.set(it.r, it.r, it.r * LS.shrubFactor); s.position.z = it.r * LS.shrubFactor * 0.8; s.castShadow = true; grp.add(s);
+      } else {
+        const Ht = it.sym === 'palm' ? LS.palm : LS.tree, trunkH = it.sym === 'palm' ? Ht * 0.85 : Ht * 0.4, cH = it.sym === 'palm' ? Ht * 0.3 : Ht * 0.7;
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, trunkH, 8), mat('bark'));
+        t.rotation.x = Math.PI / 2; t.position.z = trunkH / 2; t.castShadow = true; grp.add(t);
+        const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat(it.sym === 'palm' ? 'palm' : 'leaves', { flatShading: true }));
+        c.scale.set(it.r, it.r, cH / 2); c.position.z = Ht - cH / 2; c.castShadow = true; grp.add(c);
+      }
+      if (grp.position.z < cut) add(grp);
+      continue;
+    }
+    if (it.kind === 'line') {
+      const pts = it.pts;
+      if (nm === 'Tee-pee leg') {
+        const [ctr, foot] = pts;
+        add(member([foot[0], foot[1], groundAt(foot[0], foot[1])], [ctr[0], ctr[1], Math.min(groundAt(ctr[0], ctr[1]) + LS.teepee, cut)], 0.29, mat('wood'))); continue;
+      }
+      if (nm === 'Swings') {
+        const a = pts[0], b = pts.at(-1), g0 = groundAt(a[0], a[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        if (g0 + LS.swingBeam < cut) add(member([a[0], a[1], g0 + LS.swingBeam], [b[0], b[1], g0 + LS.swingBeam], 0.45, mat('wood')));
+        add(member([m[0], m[1], Math.min(g0 + LS.swingBeam, cut)], [m[0], m[1], g0 + 1.6], 0.05, mat('iron')));
+        box([[m[0] - 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] + 0.3], [m[0] - 0.8, m[1] + 0.3]], g0 + 1.5, g0 + 1.6, mat('iron'));
+        continue;
+      }
+      if (it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') {
+        const h = it.st === 'fence' ? LS.hogwire : it.st === 'gate' ? (/mower gate/i.test(nm) ? LS.hogwire : LS.gate) : LS.privacy;
+        const m = it.st === 'fence' ? mat('fence', { transparent: true, opacity: 0.55 }) : it.st === 'gate' ? mat('carportWood') : mat('fence');
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const a = pts[i], b = pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
+          add(panel(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, m));
+        }
+        continue;
+      }
+      if (it.st === 'joint' && nm === 'Slab joint') { add(line3(dens(pts), LS.slab + 0.02, lsJointMat)); continue; }
+      if (/^Access lane/.test(nm)) { add(line3(dens(pts), 0.12, lsLaneMat)); continue; }
+      if (it.st === 'future') { add(line3(dens(pts), 0.2, lsPoolMat)); continue; }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Views
+let center = new THREE.Vector3(), span = 80;
+function frame() {
+  const xs = [], ys = [];
+  for (const w of DATA.walls) for (const p of w.footprint) { xs.push(p[0]); ys.push(p[1]); }
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  center = P(cx, cy, 2);
+  persp.position.copy(center).add(new THREE.Vector3(-0.75 * span, 0.7 * span, 0.85 * span)); // from the south-west, above
+  pControls.target.copy(center);
+  ortho.position.copy(center).add(new THREE.Vector3(0, 200, 0));
+  ortho.up.set(0, 0, -1);                // north up
+  ortho.lookAt(center);
+  oControls.target.copy(center);
+  sun.position.copy(center).add(new THREE.Vector3(-60, 110, 70));
+  sun.target.position.copy(center);
+  resizeOrtho();
+}
+function resizeOrtho() {
+  const a = innerWidth / innerHeight, h = span * 0.62;
+  Object.assign(ortho, { left: -h * a, right: h * a, top: h, bottom: -h });
+  ortho.updateProjectionMatrix();
+}
+function setView(top) {
+  exitWalk();
+  camera = top ? ortho : persp;
+  pControls.enabled = !top; oControls.enabled = top;
+  sun.castShadow = !top;   // shadows clutter the plan
+  viewButtons();
+}
+
+// UI wiring
+const $ = id => document.getElementById(id);
+$('b3d').onclick = () => setView(false);
+$('btop').onclick = () => setView(true);
+for (const k of ['roof', 'furn', 'labels', 'trees', 'terrain', 'contours', 'newwork', 'site', 'landscape']) $(k).onchange = e => { opts[k] = e.target.checked; build(); };
+function setSeg(key, v) {
+  opts[key] = v;
+  document.querySelectorAll(`.seg[data-opt="${key}"] button`).forEach(b => b.classList.toggle('on', b.dataset.v === v));
+}
+document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
+  if (e.target.dataset.v) { setSeg(seg.dataset.opt, e.target.dataset.v); build(); }
+}));
+const fmt = f => `${Math.floor(f)}'-${Math.round((f % 1) * 12)}"`;
+function applyCut() { opts.cut = $('cutaway').checked ? +$('cuth').value : Infinity; $('cutval').textContent = fmt(+$('cuth').value); build(); }
+$('cutaway').onchange = applyCut;
+$('cuth').oninput = () => { if (!$('cutaway').checked) $('cutaway').checked = true; applyCut(); };
+
+addEventListener('resize', () => {
+  persp.aspect = innerWidth / innerHeight; persp.updateProjectionMatrix(); resizeOrtho();
+  renderer.setSize(innerWidth, innerHeight); labelRenderer.setSize(innerWidth, innerHeight);
+});
+
+// Arrow keys move the view across the site (Shift for bigger steps): up/down along the view direction, left/right sideways.
+addEventListener('keydown', e => {
+  const k = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+  if (!k || walk.on || /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
+  e.preventDefault();
+  const ctl = camera === persp ? pControls : oControls, fwd = new THREE.Vector3();
+  camera.getWorldDirection(fwd); fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.copy(camera.up).setY(0);       // top view: screen up
+  fwd.normalize();
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+  const base = camera === persp ? camera.position.distanceTo(ctl.target) * 0.04 : span * 0.03 / ortho.zoom;
+  const step = Math.max(0.5, base) * (e.shiftKey ? 4 : 1);
+  const d = right.multiplyScalar(k[0] * step).add(fwd.multiplyScalar(k[1] * step));
+  camera.position.add(d); ctl.target.add(d);
+});
+
+// ---------------------------------------------------------------------------
+// Walk mode: an eye-level camera. Drag to look around; W/S or up/down walk, A/D step sideways, left/right turn, Shift
+// faster, scroll steps. The eye stays WALK.eye above the floor under you (room floor_z, slabs, then the survey ground),
+// so it steps down into the studio and carport. Walls, glass and furniture stop you unless "Walk through walls" is on.
+// Bearing: degrees clockwise from north (0 = north, 90 = east). Plan point -> world: P(x, y, z).
+const WALK = { eye: 5.25, speed: 4.5, fast: 3, turn: 70, fov: 65, near: 0.1, radius: 0.9, look: 0.25 };
+const walk = { on: false, x: 0, y: 0, z: 0, bearing: 0, pitch: 0, keys: new Set(), orbit: null };
+const raycaster = new THREE.Raycaster();
+raycaster.params.Line.threshold = 0; raycaster.params.Points.threshold = 0;
+const solids = () => { const out = []; model.traverse(o => { if (o.isMesh && !o.userData.ground && o.visible) out.push(o); }); return out; };
+const toPlan = v => [v.x, -v.z, v.y];                       // world -> plan (x, y, z)
+const walkDir = () => {                                     // view direction in world space
+  const b = walk.bearing * Math.PI / 180, p = walk.pitch * Math.PI / 180;
+  return new THREE.Vector3(Math.sin(b) * Math.cos(p), Math.sin(p), -Math.cos(b) * Math.cos(p));
+};
+function placeWalkCamera() {
+  const eye = P(walk.x, walk.y, walk.z + WALK.eye);
+  persp.position.copy(eye); persp.lookAt(eye.clone().add(walkDir()));
+}
+function enterWalk(x, y, bearing, pitch = 0) {
+  if (!walk.on) walk.orbit = { pos: persp.position.clone(), target: pControls.target.clone(), top: camera === ortho };
+  Object.assign(walk, { on: true, x, y, bearing: ((bearing % 360) + 360) % 360, pitch, z: floorAt([x, y]) });
+  camera = persp; pControls.enabled = false; oControls.enabled = false; sun.castShadow = true;
+  Object.assign(persp, { fov: WALK.fov, near: WALK.near }); persp.updateProjectionMatrix();
+  placeWalkCamera(); viewButtons();
+}
+function exitWalk() {
+  if (!walk.on) return;
+  walk.on = false; walk.keys.clear();
+  Object.assign(persp, { fov: 40, near: 0.5 }); persp.updateProjectionMatrix();
+  persp.position.copy(walk.orbit.pos); pControls.target.copy(walk.orbit.target); persp.lookAt(pControls.target);
+}
+// Bearing of the orbit camera's view, for starting a walk facing the same way.
+const orbitBearing = () => { const d = new THREE.Vector3(); persp.getWorldDirection(d); return Math.atan2(d.x, -d.z) * 180 / Math.PI; };
+function viewButtons() {
+  $('b3d').classList.toggle('on', camera === persp && !walk.on);
+  $('btop').classList.toggle('on', camera === ortho);
+  $('bwalk').classList.toggle('on', walk.on);
+  $('walkhelp').hidden = !walk.on;
+}
+// Can the eye move from (x, y) by (dx, dy)? Rays at shin, waist and head height against everything but the ground.
+function walkBlocked(dx, dy) {
+  if ($('walkthru').checked) return false;
+  const len = Math.hypot(dx, dy); if (len < 1e-6) return false;
+  const dir = P(dx / len, dy / len, 0).normalize(), objs = solids();
+  raycaster.far = len + WALK.radius;
+  for (const h of [1.0, 3.0, WALK.eye]) {
+    raycaster.set(P(walk.x, walk.y, walk.z + h), dir);
+    if (raycaster.intersectObjects(objs, false).length) return true;
+  }
+  return false;
+}
+function walkStep(dt) {
+  const k = walk.keys, has = (...a) => a.some(c => k.has(c));
+  const turn = (has('ArrowRight') ? 1 : 0) - (has('ArrowLeft') ? 1 : 0);
+  const fwd = (has('KeyW', 'ArrowUp') ? 1 : 0) - (has('KeyS', 'ArrowDown') ? 1 : 0);
+  const side = (has('KeyD') ? 1 : 0) - (has('KeyA') ? 1 : 0);
+  const fast = has('ShiftLeft', 'ShiftRight') ? WALK.fast : 1;
+  walk.bearing = (walk.bearing + turn * WALK.turn * dt * fast + 360) % 360;
+  if (fwd || side) {
+    const b = walk.bearing * Math.PI / 180, s = WALK.speed * fast * dt / Math.hypot(fwd, side);
+    walkMove((Math.sin(b) * fwd + Math.cos(b) * side) * s, (Math.cos(b) * fwd - Math.sin(b) * side) * s);
+  }
+  walk.z += (floorAt([walk.x, walk.y]) - walk.z) * Math.min(1, dt * 8);   // ease up / down steps
+  placeWalkCamera();
+}
+function walkMove(dx, dy) {   // slide along walls: try the full move, then each axis
+  for (const [mx, my] of [[dx, dy], [dx, 0], [0, dy]]) {
+    if ((mx || my) && !walkBlocked(mx, my)) { walk.x += mx; walk.y += my; return; }
+  }
+}
+
+// Pointer: what the mouse is over (first solid hit), in plan coordinates, with the hit face's world normal.
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  raycaster.far = Infinity;
+  raycaster.setFromCamera(new THREE.Vector2((ev.clientX - r.left) / r.width * 2 - 1, -(ev.clientY - r.top) / r.height * 2 + 1), camera);
+  const objs = []; model.traverse(o => { if (o.isMesh && o.visible) objs.push(o); });
+  const hit = raycaster.intersectObjects(objs, false)[0];
+  if (!hit) return null;
+  const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+  return { hit, world: hit.point.clone(), normal: n };
+}
+const cv = renderer.domElement;
+let down = null;
+cv.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false }; if (walk.on) cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => {
+  if (!down) return;
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) down.moved = true;
+  if (walk.on && e.buttons) {   // look around: drag right looks right, drag up looks up
+    walk.bearing = (walk.bearing + (e.clientX - down.lx) * WALK.look + 360) % 360;
+    walk.pitch = Math.max(-85, Math.min(85, walk.pitch + (e.clientY - down.ly) * WALK.look * -1));
+    placeWalkCamera();
+  }
+  down.lx = e.clientX; down.ly = e.clientY;
+});
+cv.addEventListener('pointerup', e => { const click = down && !down.moved; down = null; if (click && measuring) measureClick(e); });
+cv.addEventListener('dblclick', e => {   // walk from the spot double-clicked (on a floor, or just in front of a wall)
+  if (measuring || camera === ortho) return;
+  const p = pick(e); if (!p) return;
+  let w = p.world;
+  if (p.normal.y < 0.7) w = w.clone().add(p.normal.clone().setY(0).normalize().multiplyScalar(1.5));
+  const [x, y] = toPlan(w);
+  enterWalk(x, y, walk.on ? walk.bearing : orbitBearing(), walk.on ? walk.pitch : 0);
+});
+cv.addEventListener('wheel', e => {
+  if (!walk.on) return;
+  e.preventDefault();
+  const b = walk.bearing * Math.PI / 180, s = Math.max(-2, Math.min(2, -e.deltaY * 0.02));
+  walkMove(Math.sin(b) * s, Math.cos(b) * s); placeWalkCamera();
+}, { passive: false });
+const typing = () => /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.type !== 'checkbox';
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (measuring) setMeasuring(false); else if (walk.on) { exitWalk(); setView(walk.orbit.top); } return; }
+  if (!walk.on || typing() || e.metaKey || e.ctrlKey) return;
+  if (/^(Key[WASD]|Arrow\w+|Shift\w+)$/.test(e.code)) { walk.keys.add(e.code); e.preventDefault(); }
+});
+addEventListener('keyup', e => walk.keys.delete(e.code));
+addEventListener('blur', () => walk.keys.clear());
+$('bwalk').onclick = () => {   // start where the camera is (top view: the middle of the screen), facing the same way
+  if (walk.on) return;
+  const t = toPlan(camera === ortho ? oControls.target : persp.position);
+  enterWalk(t[0], t[1], camera === ortho ? 0 : orbitBearing());
+};
+
+// ---------------------------------------------------------------------------
+// Tape measure: click two points on the model. Snaps to a corner of the face clicked when within MEASURE.snap.
+const MEASURE = { snap: 2 / 12 };
+const measures = new THREE.Group(); scene.add(measures);
+let measuring = false, mStart = null;
+const ftin = f => { let i = Math.round(Math.abs(f) * 48) / 4, ft = Math.floor(i / 12); i -= ft * 12;
+  const w = Math.floor(i), q = ['', ' 1/4', ' 1/2', ' 3/4'][Math.round((i - w) * 4)]; return `${ft}'-${w}${q}"`; };
+function setMeasuring(on) {
+  measuring = on; mStart = null; measures.children.filter(o => o.userData.pending).forEach(o => measures.remove(o));
+  $('bmeasure').classList.toggle('on', on); $('mhelp').hidden = !on; cv.style.cursor = on ? 'crosshair' : '';
+}
+function snapPoint(p) {
+  const { hit } = p, g = hit.object.geometry, pos = g.attributes.position;
+  if (!hit.face || !pos) return p.world;
+  let best = p.world, bd = MEASURE.snap;
+  for (const i of [hit.face.a, hit.face.b, hit.face.c]) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(hit.object.matrixWorld), d = v.distanceTo(p.world);
+    if (d < bd) { bd = d; best = v; }
+  }
+  return best;
+}
+const dot = (v, pending) => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xd2452b, depthTest: false }));
+  m.position.copy(v); m.renderOrder = 10; m.userData.pending = pending; measures.add(m); return m; };
+function measureClick(e) {
+  const p = pick(e); if (!p) return;
+  const v = snapPoint(p);
+  if (!mStart) { mStart = v; dot(v, true); return; }
+  measures.children.forEach(o => o.userData.pending = false);
+  dot(v, false);
+  const g = new THREE.BufferGeometry().setFromPoints([mStart, v]);
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xd2452b, depthTest: false })); l.renderOrder = 10; measures.add(l);
+  const d = v.distanceTo(mStart), rise = Math.abs(v.y - mStart.y), run = Math.hypot(v.x - mStart.x, v.z - mStart.z);
+  const div = document.createElement('div'); div.className = 'lbl measure';
+  div.innerHTML = ftin(d) + (rise > 1 / 12 && run > 1 / 12 ? `<br><small style="color:#ccc">${ftin(run)} across, ${ftin(rise)} up</small>` : '');
+  const lab = new CSS2DObject(div); lab.position.copy(mStart.clone().add(v).multiplyScalar(0.5)); measures.add(lab);
+  mStart = null;
+}
+$('bmeasure').onclick = () => setMeasuring(!measuring);
+$('mclear').onclick = () => { measures.traverse(o => { if (o.element) o.element.remove(); }); measures.clear(); mStart = null; };
+
+// ---------------------------------------------------------------------------
+// Views: a few eye-level presets, plus views saved in this browser (localStorage), and a link that reopens a view.
+// Walk presets: plan x, y, bearing (deg from north), pitch.
+const PRESETS = [
+  { name: 'Entry, toward the dining room', walk: [54.6, 47.2, 320, -4] },
+  { name: 'Kitchen, toward the glass wall', walk: [38.9, 49.6, 245, -8] },
+  { name: 'Living room toward the kitchen', walk: [36.5, 74.5, 215, -4] },
+  { name: 'Lanai toward the house', walk: [19.5, 31.0, 55, 0] },
+  { name: 'Master bedroom', walk: [44.0, 23.5, 305, -5] },
+  { name: 'Hall, looking north', walk: [54.8, 22.5, 0, 0] },
+  { name: 'Studio', walk: [32.5, 11.0, 285, -4] },
+  { name: 'Front yard', walk: [92, 52, 270, 2] },
+];
+const loadSaved = () => { try { return JSON.parse(localStorage.getItem('750m3d.views') || '[]'); } catch (e) { return []; } };
+const storeSaved = v => { try { localStorage.setItem('750m3d.views', JSON.stringify(v)); } catch (e) { toast('Could not save (browser storage blocked)'); } };
+function currentView() {
+  const r = v => +v.toFixed(2);
+  if (walk.on) return { walk: [r(walk.x), r(walk.y), Math.round(walk.bearing), Math.round(walk.pitch)] };
+  if (camera === ortho) return { top: [...toPlan(oControls.target).slice(0, 2).map(r), r(ortho.zoom)] };
+  return { orbit: [...persp.position.toArray().map(r), ...pControls.target.toArray().map(r)] };
+}
+function applyView(v) {
+  if (v.walk) return enterWalk(...v.walk);
+  exitWalk();
+  if (v.top) { setView(true); const [x, y, z] = v.top, d = P(x, y, 2).sub(oControls.target); oControls.target.add(d); ortho.position.add(d); ortho.zoom = z; ortho.updateProjectionMatrix(); return; }
+  setView(false); persp.position.fromArray(v.orbit.slice(0, 3)); pControls.target.fromArray(v.orbit.slice(3, 6));
+}
+function fillViews(sel = '') {
+  const s = $('views'), saved = loadSaved();
+  s.innerHTML = '<option value="">Go to a view…</option>' +
+    '<optgroup label="Walk-through">' + PRESETS.map((p, i) => `<option value="p${i}">${p.name}</option>`).join('') + '</optgroup>' +
+    (saved.length ? '<optgroup label="Saved in this browser">' + saved.map((p, i) => `<option value="s${i}">${p.name.replace(/</g, '&lt;')}</option>`).join('') + '</optgroup>' : '');
+  s.value = sel; $('vdel').disabled = !sel.startsWith('s');
+}
+$('views').onchange = e => {
+  const v = e.target.value; $('vdel').disabled = !v.startsWith('s'); if (!v) return;
+  applyView(v[0] === 'p' ? PRESETS[+v.slice(1)] : loadSaved()[+v.slice(1)]);
+  e.target.blur();   // so the keys walk instead of changing the menu
+};
+// A small form in the panel instead of prompt() (blocked in some embedded pages): name a view, or show a link to copy.
+let pendingView = null;
+function showForm(text, button, select) {
+  $('vform').hidden = false; $('vtext').value = text; $('vok').textContent = button;
+  $('vtext').focus(); if (select) $('vtext').select();
+}
+$('vsave').onclick = () => { pendingView = currentView(); showForm(walk.on ? 'Walk view' : 'View', 'Save', true); };
+$('vok').onclick = () => {
+  if (pendingView && $('vtext').value.trim()) {
+    const saved = loadSaved(); saved.push({ name: $('vtext').value.trim(), ...pendingView }); storeSaved(saved); fillViews('s' + (saved.length - 1));
+  }
+  pendingView = null; $('vform').hidden = true; $('vtext').blur();
+};
+$('vtext').onkeydown = e => { if (e.key === 'Enter') $('vok').click(); if (e.key === 'Escape') { pendingView = null; $('vform').hidden = true; } e.stopPropagation(); };
+$('vdel').onclick = () => {
+  const v = $('views').value; if (!v.startsWith('s')) return;
+  const saved = loadSaved(); saved.splice(+v.slice(1), 1); storeSaved(saved); fillViews();
+};
+$('vlink').onclick = () => {
+  const v = currentView(), u = new URL(location.href);
+  for (const k of ['walk', 'cam', 'view', 'az', 'el', 'dist', 't', 'top']) u.searchParams.delete(k);
+  if (v.walk) u.searchParams.set('walk', v.walk.join(','));
+  else if (v.top) { u.searchParams.set('view', 'top'); u.searchParams.set('top', v.top.join(',')); }
+  else u.searchParams.set('cam', v.orbit.join(','));
+  const s = u.toString();
+  let p; try { p = navigator.clipboard.writeText(s); } catch (e) { p = Promise.reject(e); }
+  p.then(() => toast('Link copied')).catch(() => { pendingView = null; showForm(s, 'Done', true); toast('Copy the selected link'); });
+};
+let toastT = 0;
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => el.style.opacity = 0, 1600); }
+fillViews();
+
+const narrow = $('narrow');
+const clock = new THREE.Clock();
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (walk.on) walkStep(dt); else (camera === persp ? pControls : oControls).update();
+  // north arrow: angle of world -z (north) as seen on screen
+  const wd = walk.on && walkDir();
+  const a = walk.on ? Math.atan2(-wd.x, -wd.z) : camera === persp ? Math.atan2(persp.position.x - pControls.target.x, persp.position.z - pControls.target.z) : 0;
+  narrow.style.transform = `rotate(${a * 180 / Math.PI}deg)`;
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+// URL options, handy for screenshots: ?view=top&cut=4&roof=0&finish=stucco&wingroof=flat&az=90&el=20&dist=0.8&t=40,45
+// Saved-view links: walk=x,y,bearing,pitch (eye level) | cam=px,py,pz,tx,ty,tz (orbit, world) | view=top&top=x,y,zoom
+const q = new URLSearchParams(location.search);
+// The standalone build (scripts/build_standalone.py) embeds the model files in window.__EMBED.
+const getJSON = u => window.__EMBED?.[u] ? Promise.resolve(window.__EMBED[u])
+  : fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
+
+Promise.all([getJSON('model/house.json'), getJSON('model/roof.json').catch(() => null), getJSON('model/survey.json').catch(() => null)])
+.then(([d, roof, survey]) => {
+  DATA = d; ROOF = roof; SURVEY = survey;
+  $('msg').remove();
+  if (d.scheme?.applied) $('scheme').textContent = 'Proposed: ' + d.scheme.applied.join(' + ');
+  if (q.has('cut')) { $('cutaway').checked = true; $('cuth').value = q.get('cut'); }
+  for (const k of ['roof', 'labels', 'trees', 'furn', 'terrain']) if (q.get(k) === '0') $(k).checked = opts[k] = false;
+  if (q.get('contours') === '1') $('contours').checked = opts.contours = true;
+  if (q.get('new') === '1') $('newwork').checked = opts.newwork = true;
+  if (q.get('finish')) setSeg('wingFinish', q.get('finish'));
+  if (q.get('wingroof')) setSeg('wingRoof', q.get('wingroof'));
+  frame();
+  applyCut();
+  setView(q.get('view') === 'top');
+  if (q.has('t')) {   // look at a plan point: t=x,y[,z]
+    const [x, y, z] = q.get('t').split(',').map(Number), off = persp.position.clone().sub(pControls.target);
+    pControls.target.copy(P(x, y, z || 3)); persp.position.copy(pControls.target).add(off);
+  }
+  if (q.has('az') || q.has('el') || q.has('dist')) { // 3D camera: azimuth (0 = from the south, 90 = from the west), elevation, distance factor
+    const off = persp.position.clone().sub(pControls.target), sph = new THREE.Spherical().setFromVector3(off);
+    if (q.has('az')) sph.theta = -(+q.get('az')) * Math.PI / 180;
+    if (q.has('el')) sph.phi = (90 - +q.get('el')) * Math.PI / 180;
+    if (q.has('dist')) sph.radius *= +q.get('dist');
+    persp.position.copy(pControls.target).add(new THREE.Vector3().setFromSpherical(sph));
+  }
+  if (q.has('cam')) { const c = q.get('cam').split(',').map(Number); applyView({ orbit: c }); }
+  if (q.has('top')) applyView({ top: q.get('top').split(',').map(Number) });
+  if (q.has('walk')) { const w = q.get('walk').split(',').map(Number); enterWalk(w[0], w[1], w[2] || 0, w[3] || 0); }
+  window.__ready = true;
+  loop();
+}).catch(err => { $('msg').textContent = 'Could not load the model. In this folder run "python3 -m http.server 8797 --bind 127.0.0.1" and open http://127.0.0.1:8797/. (' + err + ')'; });
+</script>
+</body>
+</html>
