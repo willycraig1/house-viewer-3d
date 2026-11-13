@@ -489,6 +489,38 @@ const TERRAZZO = (() => {
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(0.5, 0.5); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
 })();
+// Fences and gates, all one finish (William 2026-11-13): light wood, weathered grey, horizontal boards. 5-1/2" boards
+// with 1/2" gaps (one 6" course per 1/4 of the tile), seeded so it looks the same on every load. UVs in feet (wallUV).
+const FENCE = { course: 0.5, post: 3.5 / 12, postSpacing: 6, postColor: 0xb9b2a6 };
+const FENCE_MAT = (() => {
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const t = canvasTex(512, 256, (g, w, h) => {
+    const n = 4, ch = h / n, gap = ch / 12;
+    g.fillStyle = '#6a665f'; g.fillRect(0, 0, w, h);                                  // shadow in the gaps
+    for (let i = 0; i < n; i++) {
+      const y = i * ch + gap / 2, bh = ch - gap, l = 222 + rnd() * 14 | 0;           // each board a slightly different tone
+      g.fillStyle = `rgb(${l},${l - 10},${l - 26})`; g.fillRect(0, y, w, bh);       // light wood
+      for (let k = 0; k < 70; k++) {                                                  // grain + grey weathering streaks
+        const v = 178 + rnd() * 40 | 0, a = 0.10 + rnd() * 0.22;
+        g.fillStyle = rnd() < 0.55 ? `rgba(${v},${v},${v + 4},${a})` : `rgba(${v + 20},${v + 2},${v - 25},${a})`;
+        g.fillRect(rnd() * w, y + rnd() * bh, 30 + rnd() * 200, 1 + rnd() * 2);
+      }
+      g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(0, y, w, 1.5);              // lit top edge
+    }
+  }, 8, 4 * 0.5);
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
+})();
+// A fence run a -> b from z0 to z1 in that finish, with 4x4 posts at the ends and about every 6'.
+function fenceRun(a, b, z0, z1, thick, add) {
+  const m = panel(a, b, z0, z1, thick, FENCE_MAT); if (!m) return;
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]), dx = (b[0] - a[0]) / L, dy = (b[1] - a[1]) / L;
+  add(wallUV(m, a[0], a[1], dx, dy));
+  const n = Math.max(1, Math.round(L / FENCE.postSpacing)), r = FENCE.post / 2;
+  for (let i = 0; i <= n; i++) {
+    const c = [a[0] + dx * L * i / n, a[1] + dy * L * i / n];
+    add(prism([[c[0] - r, c[1] - r], [c[0] + r, c[1] - r], [c[0] + r, c[1] + r], [c[0] - r, c[1] + r]], z0, z1 + 0.04, mat(FENCE.postColor)));
+  }
+}
 const cladMat = {};
 function cladding(kind, highlight) {
   const k = kind + highlight;
@@ -983,7 +1015,7 @@ function build() {
     for (const l of L.swale) add(line3(l.pts, 0.06, swaleMat));
     if (!(opts.landscape && D.landscape)) for (const f of L.fence) for (let i = 0; i + 1 < f.pts.length; i++) {   // the site plan replaces the survey's fences
       const a = f.pts[i], b = f.pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
-      add(panel(a, b, z0 - 0.3, Math.min(z0 + f.height, cut), 0.1, mat('fence')));
+      fenceRun(a, b, z0 - 0.3, Math.min(z0 + f.height, cut), 0.1, add);
     }
     // Block wall on the south line: the survey draws each pier as four short sides. Group those into square piers (with a
     // 3" flat cap); the long runs are the wall. William: the same section repeats once to the west on the same line
@@ -1046,6 +1078,9 @@ function build() {
     }
     const vs = fp.map(q => q[1]), vmin = Math.min(...vs), vmax = Math.max(...vs), vmid = (vmin + vmax) / 2;
     const ops = [...(w.openings || [])].sort((a, b) => a.from - b.from);
+    // A frame-only wall (`frame`, W67 since 2026-11-13): its doors / sliders run up to the existing beam (their `head`),
+    // and the wall is only the frame between them, with nothing above (the beam comes from the IFC).
+    const HEAD = w.frame ? Math.max(HEIGHTS.head, ...ops.map(o => o.head ?? 0)) : HEIGHTS.head, TOP = w.frame ? HEAD : HEIGHTS.ceiling;
 
     if (w.kind === 'screen') {   // lanai screen between the posts, under a white header beam (same as the kitchen's)
       const bm = extras('framing').find(it => it.id === w.id + '-BM');   // the IFC's perimeter beam on this screen line
@@ -1142,27 +1177,27 @@ function build() {
     };
     // A solid stretch of wall. On the kitchen window wall it becomes posts at each end with fixed glass between.
     const solid = (lo, hi) => {
-      if (!windowWall) return piece(lo, hi, HEIGHTS.foundation, HEIGHTS.ceiling);
+      if (!windowWall) return piece(lo, hi, HEIGHTS.foundation, TOP);
       const a = Math.max(lo, uMin), b = Math.min(hi, uMax), pw = CLAD.postWidth;
       // a short stretch holding one of the kitchen columns: only 2" aluminum frame members either side of the column
       if (b - a <= 2 * pw + 0.25) {
         const col = [...kitchenColumnPolys(D), ...postPolys(D)].find(P => { const q = P.map(toUV), us = q.map(x => x[0]), vv = q.map(x => x[1]);
           return Math.max(...us) > a - 0.05 && Math.min(...us) < b + 0.05 && Math.min(...vv) < vmax + 0.2 && Math.max(...vv) > vmin - 0.2; });
         if (col) {
-          const us = col.map(p => toUV(p)[0]), cu0 = Math.min(...us), cu1 = Math.max(...us), [z0, z1] = capped(0.01, HEIGHTS.head);
-          piece(lo, hi, HEIGHTS.head, HEIGHTS.ceiling);
+          const us = col.map(p => toUV(p)[0]), cu0 = Math.min(...us), cu1 = Math.max(...us), [z0, z1] = capped(0.01, HEAD);
+          piece(lo, hi, HEAD, TOP);
           return;
         }
       }
       const alum = KITCHEN_WALL.alumPosts.some(([id, end]) => id === w.id && (end === 'start' ? lo === -Infinity : hi === Infinity));
       const mLo = alum ? aluMat : wm, mHi = mLo;
-      const post = (l, h, m) => { piece(l, h, HEIGHTS.foundation, HEIGHTS.head, m); piece(l, h, HEIGHTS.head, HEIGHTS.ceiling); };
+      const post = (l, h, m) => { piece(l, h, HEIGHTS.foundation, HEAD, m); piece(l, h, HEAD, TOP); };
       if (b - a <= 2 * pw + 0.25) return post(lo, hi, mLo);
       post(lo, a + pw, mLo);
       post(b - pw, hi, mHi);
       piece(a + pw, b - pw, HEIGHTS.foundation, 0.01);
-      piece(a + pw, b - pw, HEIGHTS.head, HEIGHTS.ceiling);
-      glazing(a + pw, b - pw, 0.01, HEIGHTS.head, false);
+      piece(a + pw, b - pw, HEAD, TOP);
+      glazing(a + pw, b - pw, 0.01, HEAD, false);
     };
     const ribbonGaps = [];
     for (const R of RIBBONS.filter(R => R.wall === w.id)) {
@@ -1181,6 +1216,7 @@ function build() {
       const bottom = hasSill ? sillZ(o, sides) : floorZ;
       const head = o.type === 'hole' ? HEIGHTS.ceiling : o.height != null ? sillZ(o, sides) + o.height
         : o.type === 'window' && o.head != null && o.sill != null && Math.abs(o.head - HEIGHTS.head) > 0.01 ? sillZ(o, sides) - o.sill + o.head   // non-standard head from the export
+        : w.frame && o.head != null ? o.head
         : HEIGHTS.head;
       const mSill = o.sill_type === 'masonry' && isBrick;
       // thresholds (openings to the floor) take the floor finish of the higher side: terrazzo, polished concrete or concrete
@@ -1206,7 +1242,7 @@ function build() {
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(jl, 3));
         add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x77746e })));
       }
-      piece(o.from, o.to, head, HEIGHTS.ceiling);
+      piece(o.from, o.to, head, TOP);
       if (windowWall) {   // KITCHEN_WALL details
         const sg = w.face === 'L' ? 1 : -1, vx = sg > 0 ? vmax : vmin, tb = KITCHEN_WALL.board, pr = CLAD.lapButt + 0.75 / 12;
         const tbox = (u0, u1, z0, z1, m = mat('trim')) => { const [y0, y1] = capped(z0, z1); if (y1 > y0) add(prism([[u0, vx], [u1, vx], [u1, vx + sg * pr], [u0, vx + sg * pr]].map(toXY), y0, y1, m)); };
@@ -1252,7 +1288,7 @@ function build() {
       }
       if (o.type === 'door') {
         const outside = sides.map(r => !r || r.conditioned === false);   // [+v side, -v side]
-        addDoor(o, toXY, vmin, vmax, vmid, floorZ, outside[0] !== outside[1] ? (outside[0] ? 1 : -1) : 0);
+        addDoor(o, toXY, vmin, vmax, vmid, floorZ, outside[0] !== outside[1] ? (outside[0] ? 1 : -1) : 0, head);
       }
       u = o.to;
     }
@@ -1333,12 +1369,12 @@ function build() {
 
   // Interior doors are drawn open. Exterior doors (one side outdoors, the lanai or the carport) are drawn closed, as
   // full-lite doors. The front door is forest green outside, white inside, with frosted glass.
-  function addDoor(o, toXY, vmin, vmax, vmid, z0, extSide) {
+  function addDoor(o, toXY, vmin, vmax, vmid, z0, extSide, zTop = HEIGHTS.head) {
     const leaves = o.leaves || 1, bifold = !!o.bifold, lw = o.w / leaves;
     if (extSide) {
       if (o.id === STUDIO_DOOR.id) return studioDoor(o, toXY, vmid, z0, extSide);
       const front = /front door/i.test(o.note || ''), alu = ANODIZED_DOORS.includes(o.id), t = CLAD.doorThick, s = CLAD.doorStile;
-      const zHead = HEIGHTS.head, glass = front ? frostMat : glassMat;
+      const zHead = zTop, glass = front ? frostMat : glassMat;
       for (let i = 0; i < leaves; i++) {
         const u0 = o.from + i * lw, u1 = u0 + lw;
         // stiles and rails in two layers so the two faces can differ
@@ -1361,7 +1397,7 @@ function build() {
     const hinges = leaves === 2 ? [[o.from, 1], [o.to, -1]] : [[o.hinge === 'b' ? o.to : o.from, o.hinge === 'b' ? -1 : 1]];
     for (const [uh, dir] of hinges) {
       const end = [uh + dir * lw * Math.cos(ang), vFace + sideV * lw * Math.sin(ang)];
-      add(panel(toXY([uh, vFace]), toXY(end), ...capped(z0, HEIGHTS.head), 0.146, mat('door')));
+      add(panel(toXY([uh, vFace]), toXY(end), ...capped(z0, zTop), 0.146, mat('door')));
     }
   }
 
@@ -1637,9 +1673,11 @@ function build() {
 
   // Kitchen glass-wall columns, 5" x 5"
   kitchenColumnPolys(D).forEach((pts, i) => {
-    const C = kitchenColumns(D)[i], [z0, z1] = capped(columnBase(C), HEIGHTS.head);
+    const C = kitchenColumns(D)[i];
+    const fw = D.walls.find(w => w.frame && pts.some(p => edgeDist(p, w.footprint) < 0.3 || inside(p, w.footprint)));   // on a frame-only wall
+    const top = fw ? Math.max(HEIGHTS.head, ...(fw.openings || []).map(o => o.head ?? 0)) : HEIGHTS.head, [z0, z1] = capped(columnBase(C), top);
     if (z1 > z0) add(prism(pts, z0, z1, C.material === 'aluminum' ? aluMat : mat('post')));
-    if (HEIGHTS.head > cut) add(cutCap(pts));
+    if (top > cut) add(cutCap(pts));
   });
 
   // A framing member along a plan segment, up to the cut, with a cut face if sliced.
@@ -2171,7 +2209,8 @@ function build() {
 // assumptions (LANDSCAPE); see docs/DECISIONS.md.
 const LANDSCAPE = {
   slab: 0.15, flat: 0.05, mulch: 0.07, foliage: 1.4, shrubFactor: 1.3,
-  planterWall: 1.5, curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
+  planterWall: 1.5, lanaiPlanterTop: 0,   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
+  curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
   privacy: 6, hogwire: 4, gate: 5.5, teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
   tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
 };
@@ -2218,11 +2257,14 @@ function buildLandscape(D, add, capped, cut) {
   const raised = new Set(items.filter(it => it.kind === 'area' && it.mat === 'bed' && /planter/i.test(it.name || '') && !/pot/i.test(it.name || '')
     && wallPolys.some(W => clean(it.poly).every(p => Math.hypot(...[0, 1].map(k => p[k] - centroid(W)[k])) < 60))).map(it => it.id));
   const upper = items.find(x => /overlapping deck/i.test(x.name || ''));
+  const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
+  const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
+  const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
   for (const it of items) {
     const nm = it.name || '';
     if (it.kind === 'area') {
       const P = it.poly, H = it.holes, g0 = gC(P);
-      if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, g0 + LS.planterWall, mat('wall'), H); continue; }
+      if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, wallTop(it, g0), mat('wall'), H); continue; }
       if (nm === 'Play zone curb') { box(P, g0 - 0.3, g0 + LS.curb, mat('concrete'), H); continue; }
       if (it.mat === 'deck') {
         let top = g0 + LS.deckLow;
@@ -2235,10 +2277,10 @@ function buildLandscape(D, add, capped, cut) {
         box(P, top - 0.25, top, surf.deck, H); continue;
       }
       if (it.mat === 'planting') {
-        const up = it.of && raised.has(it.of) ? LS.planterWall - 0.15 : LS.mulch;
-        box(P, g0 + up, g0 + up + LS.foliage, surf.planting, H); continue;
+        const base = it.of && raised.has(it.of) ? soilTop(by[it.of]) : g0 + LS.mulch;
+        box(P, base, base + LS.foliage, surf.planting, H); continue;
       }
-      if (it.mat === 'bed' && raised.has(it.id)) { box(P, g0 - 0.3, g0 + LS.planterWall - 0.15, surf.bed, H); continue; }
+      if (it.mat === 'bed' && raised.has(it.id)) { box(P, g0 - 0.3, soilTop(it), surf.bed, H); continue; }
       if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
       const lift = it.mat === 'concrete' ? LS.slab : it.mat === 'bed' ? LS.mulch : it.mat === 'sod' ? LS.flat - 0.02 : LS.flat;
       add(drapeArea(P, H, lift, surf[it.mat] || mat('grass')));
@@ -2286,10 +2328,9 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') {
         const h = it.st === 'fence' ? LS.hogwire : it.st === 'gate' ? (/mower gate/i.test(nm) ? LS.hogwire : LS.gate) : LS.privacy;
-        const m = it.st === 'fence' ? mat('fence', { transparent: true, opacity: 0.55 }) : it.st === 'gate' ? mat('carportWood') : mat('fence');
-        for (let i = 0; i + 1 < pts.length; i++) {
+        for (let i = 0; i + 1 < pts.length; i++) {   // perimeter, privacy, enclosure fences and gates: one finish (FENCE_MAT)
           const a = pts[i], b = pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
-          add(panel(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, m));
+          fenceRun(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, add);
         }
         continue;
       }
