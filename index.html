@@ -963,7 +963,7 @@ const FAR_FIELD = -4.6;   // flat lawn beyond the surveyed area, just below the 
 const REGRADE = { x0: 0, x1: 8, level: -1.0, keep: 0.2, outside: 4, maxEdge: 3,
   // the front drive circle's island raised into a dome-shaped berm (William 2026-11-13): `height` at its middle, easing to
   // the existing grade at its edge (height assumed)
-  berms: [{ name: 'Bermed island', height: 2.0 }] };
+  berms: [{ name: 'Bermed island', height: 4.0 }] };   // 4' (William 2026-11-13)
 let GROUND = null;   // the ground in use: survey TIN with the regrade applied ({ v, tri, surface, hull }, + a lookup grid)
 function buildGround() {
   const R = REGRADE, S = SURVEY.ground, lot = DATA.site?.lot;
@@ -2576,7 +2576,8 @@ function frame() {
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
   center = P(cx, cy, 2);
-  persp.position.copy(center).add(new THREE.Vector3(-0.75 * span, 0.7 * span, 0.85 * span)); // from the south-west, above
+  // starting view (William 2026-11-13): aerial of the east (street) elevation, from over the drive, a little south
+  persp.position.copy(center).add(new THREE.Vector3(1.7 * span, 0.95 * span, 0.35 * span));
   pControls.target.copy(center);
   ortho.position.copy(center).add(new THREE.Vector3(0, 200, 0));
   ortho.up.set(0, 0, -1);                // north up
