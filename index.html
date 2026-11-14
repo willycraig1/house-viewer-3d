@@ -2413,7 +2413,8 @@ function build() {
     g.add(trunk);
     if (cut < Infinity) {   // cutaway: trunk stub + dashed drip line, so the plan stays readable
       trunk.scale.y = Math.min(1, (cut - g.position.z) / trunkH); trunk.position.z = trunkH * trunk.scale.y / 2;
-      const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(t.canopy * Math.cos(a), t.canopy * Math.sin(a)); }
+      const bb = /bottlebrush/i.test(t.name), cR = bb ? BOTTLEBRUSH.drip : t.canopy, cC = bb ? BOTTLEBRUSH.center : [0, 0];   // the bottlebrush's drip line sits south
+      const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(cC[0] + cR * Math.cos(a), cC[1] + cR * Math.sin(a)); }
       const dl = polylines([ring], 0.08, dripMat); dl.computeLineDistances(); g.add(dl);
       add(g);
       if (opts.labels) label(t.name, t.at, 1, 'tree');
@@ -2431,48 +2432,78 @@ function build() {
   }
 }
 
-// Weeping bottlebrush (Callistemon viminalis), the survey's 14" twin "BB" west of the living room: two trunks leaning
-// apart from the base, limbs forking up and out, and from the limb tips long pendulous branchlets hanging in curtains,
-// narrow grey-green leaves along them and red bottlebrush spikes at their ends. Height / spread from the survey estimate
-// (28', canopy r 12.6'); limb count, droop and bloom density assumed. Branchlets, leaves and spikes are instanced.
+// Weeping bottlebrush (Callistemon viminalis), the survey's 14" twin "BB" west of the living room (William 2026-11-14):
+// a tall vertical leader up to about the survey height, and a large low branch that carries the canopy's center well
+// south of the trunk; drip line about 44' across. Pendulous branchlets hang in curtains from every limb end, narrow
+// grey-green leaves along them, red 4" spikes on about half. Numbers in BOTTLEBRUSH (south offset and spread are
+// William's description, not measured); branchlets, leaves and spikes are instanced.
+const BOTTLEBRUSH = { height: 28, drip: 22, center: [0, -10], branchEnd: [0.5, -15, 13], leaderTop: 26, crownLow: 8, crownHigh: 17 };
 function bottlebrushTree(t) {
-  const g = new THREE.Group(), H = Math.min(t.height, 24), R = t.canopy * 0.85;
+  const g = new THREE.Group(), B = BOTTLEBRUSH, H = t.height || B.height, R = B.drip, C = B.center;
   let seed = 52; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const bark = mat(0x5e4b3c), V = (x, y, z) => new THREE.Vector3(x, y, z);
   const limb = (a, b, r0, r1) => {   // tapered round limb from a to b
-    const L = a.distanceTo(b), m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, L, 7), bark);
+    const L = a.distanceTo(b); if (L < 0.05) return;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, L, 7), bark);
     m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize()); m.castShadow = true; g.add(m);
   };
-  const tips = [];
-  const grow = (a, dir, len, r, depth) => {   // forking limbs, bending up and out
-    const b = a.clone().add(dir.clone().multiplyScalar(len)); limb(a, b, r, r * 0.68);
-    if (depth === 0) { tips.push(b); return; }
-    const n = depth > 1 ? 2 : 2 + Math.floor(rnd() * 2);
-    for (let k = 0; k < n; k++) {
-      const az = Math.atan2(dir.y, dir.x) + (k - (n - 1) / 2) * 1.3 + (rnd() - 0.5) * 0.8 + (depth === 4 ? k * Math.PI : 0), out = Math.hypot(dir.x, dir.y) + 0.3;
-      const d = V(Math.cos(az) * out, Math.sin(az) * out, Math.max(0.25, dir.z * 0.8 + (rnd() - 0.4) * 0.3)).normalize();
-      grow(b, d, len * (0.6 + rnd() * 0.15), r * 0.68, depth - 1);
+  const nodes = [];   // skeleton points that side limbs can grow from: [point, radius there]
+  const path = (pts, r0, r1, sample) => {   // a limb along a polyline, tapering r0 -> r1; records nodes every ~1.5'
+    const n = pts.length - 1;
+    for (let i = 0; i < n; i++) {
+      const ra = r0 + (r1 - r0) * i / n, rb = r0 + (r1 - r0) * (i + 1) / n; limb(pts[i], pts[i + 1], ra, rb);
+      if (sample) { const k = Math.max(1, Math.round(pts[i].distanceTo(pts[i + 1]) / 1.5));
+        for (let j = 0; j < k; j++) nodes.push([pts[i].clone().lerp(pts[i + 1], j / k), ra + (rb - ra) * j / k]); }
     }
   };
   const dia = t.dbh_in / 12 / Math.SQRT2;   // twin: two stems of about the same total section
-  for (const s of [0, 1]) {
-    const az = s * Math.PI + 0.6, base = V(Math.cos(az) * dia * 0.35, Math.sin(az) * dia * 0.35, 0);
-    const d = V(Math.cos(az) * 0.18, Math.sin(az) * 0.18, 1).normalize();
-    grow(base, d, H * 0.32, dia / 2, 4);
+  // stem 1: the vertical leader, a slight wander up to near the survey height
+  const lead = [V(0.25, 0.2, 0), V(0.4, 0.35, 5)];
+  for (let z = 9; z <= B.leaderTop; z += 4) lead.push(V(0.4 + (rnd() - 0.5) * 0.9, 0.3 + (rnd() - 0.5) * 0.9, z));
+  lead.push(V(lead.at(-1).x, lead.at(-1).y, H));
+  path(lead, dia / 2, 0.06, true);
+  // stem 2: leans south and becomes the big branch that carries the canopy south
+  const E = B.branchEnd, big = [V(-0.2, -0.25, 0), V(-0.4, -1.2, 4.5), V(E[0] * 0.25, E[1] * 0.35, 8.5), V(E[0] * 0.6, E[1] * 0.7, 11.5), V(...E)];
+  path(big, dia / 2, 0.22, true);
+  // canopy targets: a dome over the drip circle (centered south of the trunk), plus tufts up the leader
+  const targets = [];
+  for (let k = 0; k < 120; k++) {
+    const a = rnd() * Math.PI * 2, d = R * Math.sqrt(0.08 + rnd() * 0.92) * 0.9, x = C[0] + Math.cos(a) * d, y = C[1] + Math.sin(a) * d;
+    const f = 1 - (d / R) ** 2; targets.push([V(x, y, B.crownLow + (B.crownHigh - B.crownLow) * f + rnd() * 2), 7]);
   }
-  // pendulous branchlets: from each tip and along the outer limbs, strands that arch out a little and then hang
+  for (let k = 0; k < 16; k++) {
+    const z = 15 + rnd() * (H - 16), a = rnd() * Math.PI * 2, d = 1.5 + rnd() * 4 * (1 - (z - 15) / (H - 15));
+    targets.push([V(0.4 + Math.cos(a) * d, 0.3 + Math.sin(a) * d, z), 5]);
+  }
+  // scaffold limbs: the dome targets in 9 sectors round the canopy center; each sector gets one limb from the nearest
+  // skeleton node out toward its targets (rising), so the twigs branch off along it instead of fanning from one point
+  const nodes0 = nodes.slice(), sectors = Array.from({ length: 9 }, () => []);
+  for (const tg of targets.slice(0, 120)) { const q = tg[0], a = Math.atan2(q.y - C[1], q.x - C[0]); sectors[Math.floor(((a + Math.PI) / (2 * Math.PI)) * 9) % 9].push(q); }
+  for (const sec of sectors) if (sec.length) {
+    const m = sec.reduce((t, q) => t.add(q), V(0, 0, 0)).multiplyScalar(1 / sec.length), far = V(C[0] + (m.x - C[0]) * 1.25, C[1] + (m.y - C[1]) * 1.25, m.z);
+    let best = nodes0[0]; for (const nd of nodes0) if (nd[0].z > 5 && nd[0].z < far.z && nd[0].distanceTo(far) < best[0].distanceTo(far)) best = nd;
+    const a = best[0], mid = a.clone().lerp(far, 0.5).add(V(0, 0, 1.2));
+    path([a, mid, far], Math.min(best[1] * 0.75, 0.2), 0.06, true);
+  }
+  // each target: a twig limb from the nearest skeleton node (arching up a little), branchlets hanging from its end
   const strands = [];
-  for (const p of tips) for (let k = 0; k < 7; k++) {
-    const az = rnd() * Math.PI * 2, o = p.clone().add(V(Math.cos(az) * rnd() * 1.6, Math.sin(az) * rnd() * 1.6, (rnd() - 0.6) * 1.2));
-    const rr = Math.hypot(o.x, o.y); if (rr > R) o.multiplyScalar(R / rr);
-    const drop = Math.min(o.z - 1.5, 3 + rnd() * Math.max(0, o.z - 4) * 0.6), out = V(o.x, o.y, 0).normalize().multiplyScalar(0.8 + rnd() * 0.8);
-    const pts = []; for (let i = 0; i <= 6; i++) { const s = i / 6; pts.push(V(o.x + out.x * Math.sin(s * Math.PI / 2), o.y + out.y * Math.sin(s * Math.PI / 2), o.z + 0.4 * Math.sin(s * Math.PI) - drop * s * s)); }
+  const hang = (o, n, len) => { for (let k = 0; k < n; k++) {
+    const az = rnd() * Math.PI * 2, p = o.clone().add(V(Math.cos(az) * rnd() * 1.6, Math.sin(az) * rnd() * 1.6, (rnd() - 0.6) * 1.0));
+    const drop = Math.min(p.z - 1.5, len * (0.6 + rnd() * 0.6)), out = V(p.x - C[0], p.y - C[1], 0).normalize().multiplyScalar(0.6 + rnd() * 0.8);
+    const pts = []; for (let i = 0; i <= 6; i++) { const s = i / 6; pts.push(V(p.x + out.x * Math.sin(s * Math.PI / 2), p.y + out.y * Math.sin(s * Math.PI / 2), p.z + 0.4 * Math.sin(s * Math.PI) - drop * s * s)); }
     strands.push(pts);
+  } };
+  for (const [q, n] of targets) {
+    let best = nodes[0]; for (const nd of nodes) if (nd[0].z < q.z + 1 && nd[0].distanceTo(q) < best[0].distanceTo(q)) best = nd;
+    const a = best[0], L = a.distanceTo(q), r0 = Math.min(best[1] * 0.6, 0.04 + L * 0.008);
+    const m1 = a.clone().lerp(q, 0.45).add(V(0, 0, L * 0.12)), m2 = a.clone().lerp(q, 0.8).add(V(0, 0, L * 0.06));
+    path([a, m1, m2, q], r0, 0.035, false);
+    hang(q, n, 4 + (1 - Math.hypot(q.x - C[0], q.y - C[1]) / R) * 3 + rnd() * 3);
+    if (L > 6) { hang(m1, 2, 4); hang(m2, 2, 4); }
   }
   const twig = new THREE.CylinderGeometry(0.025, 0.035, 1, 4), leafG = new THREE.ConeGeometry(0.16, 1, 4), spikeG = new THREE.CylinderGeometry(0.08, 0.06, 1, 6);
-  const nSeg = strands.length * 6, nLeaf = strands.length * 14, nSpike = strands.length;
-  const tw = new THREE.InstancedMesh(twig, mat(0x6d5a44), nSeg), lf = new THREE.InstancedMesh(leafG, mat(0x5f7d52, { flatShading: true }), nLeaf);
-  const sp = new THREE.InstancedMesh(spikeG, mat(0xc4232f, { flatShading: true }), nSpike);
+  const tw = new THREE.InstancedMesh(twig, mat(0x6d5a44), strands.length * 6), lf = new THREE.InstancedMesh(leafG, mat(0x5f7d52, { flatShading: true }), strands.length * 14);
+  const sp = new THREE.InstancedMesh(spikeG, mat(0xc4232f, { flatShading: true }), strands.length);
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), Y = V(0, 1, 0);
   let it = 0, il = 0, is = 0;
   for (const pts of strands) {
