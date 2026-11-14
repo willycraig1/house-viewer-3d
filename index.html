@@ -103,10 +103,10 @@
   </div>
 
   <div class="sec">
-    <h2>New wing options</h2>
-    <div>Exterior finish</div>
-    <div class="seg" data-opt="wingFinish">
-      <button data-v="lap" class="on">Lap siding (match)</button><button data-v="stucco">Smooth stucco</button>
+    <h2>Options</h2>
+    <div>Roofing</div>
+    <div class="seg" data-opt="roofFinish">
+      <button data-v="shingle" class="on">Shingle</button><button data-v="metal">Metal panel</button>
     </div>
   </div>
 
@@ -577,6 +577,31 @@ function fencePieces(it, a, b) {
   }
   return out;
 }
+// Roofing option (William 2026-11-14): shingle, or standing-seam metal panels (galvalume, seams 16" o.c. running down
+// the slope; colour and seam spacing assumed). roofTop() is the roofing material for the house roofs (not the shed).
+const METAL_ROOF = { seam: 16 / 12, color: 0xbfc4c7 };
+const METAL_MAT = (() => {
+  const t = canvasTex(128, 8, (g, w, h) => {
+    g.fillStyle = '#e9ecee'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 4, h);          // lit side of the seam
+    g.fillStyle = '#8f9599'; g.fillRect(4, 0, 4, h);          // shadow side
+    g.fillStyle = 'rgba(0,0,0,0.04)'; g.fillRect(w / 2 - 1, 0, 2, h);   // faint stiffening rib
+  }, METAL_ROOF.seam, 1);
+  return new THREE.MeshStandardMaterial({ map: t, color: METAL_ROOF.color, metalness: 0.45, roughness: 0.45, side: THREE.DoubleSide });
+})();
+const roofTop = () => opts.roofFinish === 'metal' ? METAL_MAT : mat('shingle', { side: THREE.DoubleSide });
+// UVs for the metal panels: u across the slope (horizontal, square to the fall line), v down the slope, in feet
+function metalUV(mesh) {
+  const g = mesh.geometry, pos = g.attributes.position; if (!g.attributes.normal) g.computeVertexNormals();
+  const nor = g.attributes.normal, uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    let dx = nor.getX(i), dy = nor.getY(i); const L = Math.hypot(dx, dy);
+    if (L < 1e-3) { dx = 1; dy = 0; } else { dx /= L; dy /= L; }
+    const x = pos.getX(i) + mesh.position.x, y = pos.getY(i) + mesh.position.y;
+    uv[2 * i] = -x * dy + y * dx; uv[2 * i + 1] = x * dx + y * dy;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
 const cladMat = {};
 function cladding(kind, highlight) {
   const k = kind + highlight;
@@ -880,7 +905,7 @@ function leanTo(l) {
   const sides = [];
   for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; sides.push([bot[i], bot[j], top[j]], [bot[i], top[j], top[i]]); }
   const g = new THREE.Group();
-  g.add(triMesh(fan(top), mat('shingle', { side: THREE.DoubleSide })));
+  g.add(triMesh(fan(top), roofTop()));
   g.add(triMesh(fan(bot), mat('carportWood', { side: THREE.DoubleSide })));   // natural-finish T&G decking, seen from below (William 2026-11-01)
   g.add(triMesh(sides, mat('trim', { side: THREE.DoubleSide })));
   // end triangles: on each end of the porch (perpendicular to the low edge), main eave line -> where the planes meet
@@ -952,7 +977,7 @@ function postPolys(D) {
 // ---------------------------------------------------------------------------
 let DATA = null, ROOF = null, SURVEY = null, EXTRAS = null;
 const opts = { roof: true, furn: true, labels: true, trees: true, terrain: true, contours: false, newwork: false, site: true, landscape: true, cut: Infinity,
-               wingFinish: 'lap', mep: false, fdn: false };
+               roofFinish: 'shingle', mep: false, fdn: false };
 
 // ----- Survey ground: triangulated surface (model/survey.json, z relative to the main floor)
 const FAR_FIELD = -4.6;   // flat lawn beyond the surveyed area, just below the lowest shot
@@ -1229,7 +1254,7 @@ function build() {
     let clad = null, W = null, ext = null;
     const xf = (w.exterior_faces || [])[0], XF = xf && { face: xf.face, u: [xf.from, xf.to] }, wFace = w.face || (XF && XF.face);   // part-exterior interior wall (W11)
     if (wFace && !windowWall && !isBrick) {
-      clad = /^H10/.test(w.id) ? opts.wingFinish : 'lap';
+      clad = 'lap';   // the stucco option for the wing is gone (William 2026-11-14)
       const vext = wFace === 'L' ? vmax : vmin, sgn = wFace === 'L' ? 1 : -1;
       W = { toXY, vext, sgn, start: Math.min(0, floorAt(toXY([(uMin + uMax) / 2, vext - sgn * 1.0]))) };   // siding starts on the slab (studio -8")
       let [e0, e1] = faceRange(vext); if (XF) { e0 = Math.max(e0, XF.u[0]); e1 = Math.min(e1, XF.u[1]); }
@@ -2094,7 +2119,7 @@ function build() {
       const sof = soffitMat(zones);
       add(ifcMeshes(extras('roof').filter(it => !/porch/i.test(it.id)), (it, n) => {
         const flat = /lanai|studio/i.test(it.id);
-        if (n[2] > 0.3) return mat(flat ? 'membrane' : 'shingle');
+        if (n[2] > 0.3) return flat ? mat('membrane') : roofTop();
         if (n[2] < -0.3) return flat ? mat(/studio/i.test(it.id) ? 'carportWood' : 'trim') : sof;   // exposed decks: lanai white, studio stained
         return mat('trim');   // fascia
       }));
@@ -2303,6 +2328,7 @@ function build() {
     });
   }
   if (opts.landscape && D.landscape) buildLandscape(D, add, capped, cut);
+  if (opts.roofFinish === 'metal') model.traverse(o => { if (o.isMesh && o.material === METAL_MAT) metalUV(o); });
   // Trees (survey positions and trunk sizes; heights and spreads estimated)
   if (opts.trees && SURVEY) for (const t of SURVEY.trees) {
     const g = new THREE.Group(); g.position.set(t.at[0], t.at[1], groundAt(t.at[0], t.at[1]));
@@ -2343,7 +2369,8 @@ const SITE_EDITS = {
   R92: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
-  L151: { skip: true },   // the cardboard palm in the front addition planter (William 2026-11-13)
+  L151: { skip: true },
+  L89: { sym: 'powderpuff' },   // the powderpuff bush, modelled in detail (William 2026-11-14)   // the cardboard palm in the front addition planter (William 2026-11-13)
   L3: { pts: [[-50.82, 95.13], [55.55, 97.11]] },   // north fence on to the side-yard fence at x 55.55 (NE corner gap)
   R60: { pts: [[55.55, 91.82], [55.55, 97.11]] },
 };
@@ -2361,7 +2388,7 @@ const LANDSCAPE = {
   planterWall: 1.5, lanaiPlanterTop: 0, terraceTop: 0, curbTop: 0,   // terrace + play-zone curb at the house floor (William 2026-11-13)
   playBelowCurb: 2 / 12,   // play-zone surface 2" below the curb; what stands in it sits on that surface (William 2026-11-13)   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
   curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
-  fence: 6 + 8 / 12,   // all fences + gates 6'-8" above the ground (William 2026-11-13; was privacy 6', perimeter 4', gates 5'-6")
+  fence: 5 + 8 / 12,   // wood fences + gates 5'-8" above the ground (William 2026-11-14: 1' lower; was 6'-8")
   teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
   tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
 };
@@ -2452,6 +2479,24 @@ function buildLandscape(D, add, capped, cut) {
     } else terrStrips.push(...terr);
   }
   const onTerrace = p => terr.some(P => inside(p, P) || edgeDist(p, P) < 0.05);
+  // Wood fences: a gate and the short runs chained to it (sharing end points, runs under 25') get ONE level top, the
+  // highest ground along them + the fence height (William 2026-11-14: south gate + fences aligned like the north side)
+  const woodTop = new Map();
+  {
+    const pcs = [];
+    for (const it of items) if ((it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') && it.pts)
+      for (let i = 0; i + 1 < it.pts.length; i++) fencePieces(it, it.pts[i], it.pts[i + 1]).forEach(([a, b, wire], k) => {
+        if (!wire) pcs.push({ key: it.id + ':' + i + ':' + k, a, b, L: Math.hypot(b[0] - a[0], b[1] - a[1]),
+          g: Math.max(groundAt(a[0], a[1]), groundAt(b[0], b[1])) });
+      });
+    const par = pcs.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i]));
+    const touch = (p, q) => [p.a, p.b].some(x => [q.a, q.b].some(y => Math.hypot(x[0] - y[0], x[1] - y[1]) < 0.3));
+    for (let i = 0; i < pcs.length; i++) for (let j = i + 1; j < pcs.length; j++)
+      if (pcs[i].L < 25 && pcs[j].L < 25 && touch(pcs[i], pcs[j])) par[find(i)] = find(j);
+    const top = new Map();
+    pcs.forEach((p, i) => { const r = find(i); top.set(r, Math.max(top.get(r) ?? -Infinity, p.g)); });
+    pcs.forEach((p, i) => { if (pcs.some((q, j) => j !== i && find(j) === find(i))) woodTop.set(p.key, top.get(find(i)) + LS.fence); });
+  }
   const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
@@ -2520,6 +2565,29 @@ function buildLandscape(D, add, capped, cut) {
         top.scale.set(3, 3, 2); top.position.z = H - 2; top.castShadow = true; grp.add(top);
         const fl = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), mat(0xd77aa8, { flatShading: true }));
         fl.scale.set(2, 2, 1.1); fl.position.z = H - 0.6; grp.add(fl);
+      } else if (it.sym === 'powderpuff') {   // Calliandra haematocephala: ~6' x 6', arching multi-stem shrub, fine dark
+        // green leaf clumps, red "powderpuff" blooms on the outside of the canopy (size assumed: mature-ish)
+        let seed = 89; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        const stem = mat(0x6b5a48), leaf = mat(0x2f5a2c, { flatShading: true }), leaf2 = mat(0x3d6b35, { flatShading: true }), bloom = mat(0xd8283f, { flatShading: true });
+        const R = 3, H = 6;
+        for (let k = 0; k < 7; k++) {   // arching stems from the base
+          const a = k / 7 * Math.PI * 2 + rnd() * 0.5, r1 = R * (0.55 + rnd() * 0.3), z1 = H * (0.55 + rnd() * 0.3);
+          const mid = [Math.cos(a) * r1 * 0.45, Math.sin(a) * r1 * 0.45, z1 * 0.7], end = [Math.cos(a) * r1, Math.sin(a) * r1, z1];
+          grp.add(member([0, 0, 0], mid, 0.12, stem)); grp.add(member(mid, end, 0.08, stem));
+        }
+        const clumps = [];
+        for (let k = 0; k < 22; k++) {   // leaf clumps filling a rounded, slightly flat-topped canopy
+          const a = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * R * 0.85, z = 1.6 + rnd() * (H - 2.6) * (1 - 0.5 * rr / R), r = 0.9 + rnd() * 0.5;
+          const c = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), k % 3 ? leaf : leaf2);
+          c.position.set(Math.cos(a) * rr, Math.sin(a) * rr, z); c.scale.z = 0.75; c.castShadow = true; grp.add(c); clumps.push([c.position.clone(), r]);
+        }
+        for (let k = 0; k < 44; k++) {   // blooms: red puffs sitting on the outside of the leaf clumps (outward / upward faces)
+          const [p, r] = clumps[Math.floor(rnd() * clumps.length)];
+          const out = new THREE.Vector3(p.x, p.y, 0).normalize(), a = rnd() * Math.PI * 2;
+          const d = new THREE.Vector3(out.x + Math.cos(a) * 0.6, out.y + Math.sin(a) * 0.6, 0.3 + rnd() * 0.9).normalize();
+          const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16 + rnd() * 0.07, 1), bloom);
+          b.position.set(p.x + d.x * r * 0.95, p.y + d.y * r * 0.95, p.z + d.z * r * 0.75 * 0.95); grp.add(b);
+        }
       } else if (it.sym === 'shrub') {
         const s = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), mat('foliage', { flatShading: true }));
         s.scale.set(it.r, it.r, it.r * LS.shrubFactor); s.position.z = it.r * LS.shrubFactor * 0.8; s.castShadow = true; grp.add(s);
@@ -2548,12 +2616,12 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') {
         const h = LS.fence;   // every fence and gate the same height (William 2026-11-13)
-        for (let i = 0; i + 1 < pts.length; i++)   // front + side yards: FENCE_MAT, 6'-8"; rear yard: 48" wire (WIRE_FENCE)
-          for (const [a, b, wire] of fencePieces(it, pts[i], pts[i + 1])) {
-            const z0 = Math.min(gAt(a[0], a[1]), gAt(b[0], b[1]));
+        for (let i = 0; i + 1 < pts.length; i++)   // front + side yards: FENCE_MAT, 5'-8"; rear yard: 42" wire (WIRE_FENCE)
+          fencePieces(it, pts[i], pts[i + 1]).forEach(([a, b, wire], k) => {
+            const z0 = Math.min(gAt(a[0], a[1]), gAt(b[0], b[1])), zt = woodTop.get(it.id + ':' + i + ':' + k) ?? z0 + h;
             if (wire) { if (wireTop < cut) wireRun(a, b, wireTop, add, it.st === 'gate'); }
-            else fenceRun(a, b, z0 - 0.3, Math.min(z0 + h, cut), it.st === 'fence' ? 0.12 : 0.15, add);
-          }
+            else fenceRun(a, b, z0 - 0.3, Math.min(zt, cut), it.st === 'fence' ? 0.12 : 0.15, add);
+          });
         continue;
       }
       if (it.st === 'joint' && nm === 'Slab joint') {
@@ -2897,7 +2965,7 @@ function loop() {
   labelRenderer.render(scene, camera);
 }
 
-// URL options, handy for screenshots: ?view=top&cut=4&roof=0&finish=stucco&mep=1&fdn=1&az=90&el=20&dist=0.8&t=40,45
+// URL options, handy for screenshots: ?view=top&cut=4&roof=0&roofing=metal&mep=1&fdn=1&az=90&el=20&dist=0.8&t=40,45
 // Saved-view links: walk=x,y,bearing,pitch (eye level) | cam=px,py,pz,tx,ty,tz (orbit, world) | view=top&top=x,y,zoom
 const q = new URLSearchParams(location.search);
 // The standalone build (scripts/build_standalone.py) embeds the model files in window.__EMBED.
@@ -2915,7 +2983,7 @@ Promise.all([getJSON('model/house.json'), getJSON('model/roof.json').catch(() =>
   for (const k of ['roof', 'labels', 'trees', 'furn', 'terrain']) if (q.get(k) === '0') $(k).checked = opts[k] = false;
   if (q.get('contours') === '1') $('contours').checked = opts.contours = true;
   if (q.get('new') === '1') $('newwork').checked = opts.newwork = true;
-  if (q.get('finish')) setSeg('wingFinish', q.get('finish'));
+  if (q.get('roofing')) setSeg('roofFinish', q.get('roofing'));
   for (const k of ['mep', 'fdn']) if (q.get(k) === '1') $(k).checked = opts[k] = true;
   frame();
   applyCut();
