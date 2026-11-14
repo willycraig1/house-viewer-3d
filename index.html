@@ -1116,7 +1116,8 @@ function terrainMesh() {
   // With the site plan on, the survey's old back-yard concrete (the lanai slab edge strip, outside the rooms) is lawn:
   // the plan replaces that paving (it showed as a sliver past the lanai planter).
   const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && t.some(p => p[0] < 25);   // floors cover what's under the house; the door 07 slab replaces the studio patio
-  tri.forEach(([i, j, k], n) => { const sf = oldPaving([v[i], v[j], v[k]], surface[n]) ? 'lawn' : surface[n];
+  const sitePlan = opts.landscape && DATA.landscape;   // with it the street is drawn as its own clean strip (STREET); the survey's asphalt is lawn
+  tri.forEach(([i, j, k], n) => { const sf = oldPaving([v[i], v[j], v[k]], surface[n]) || (sitePlan && surface[n] === 'asphalt') ? 'lawn' : surface[n];
     const hex = COLORS[sf === 'lawn' ? 'grass' : sf]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
   for (let e = 0; e < hull.length; e += 2) {   // skirt from the surveyed edge down to the far-field lawn
     const a = v[hull[e]], b = v[hull[e + 1]], A = [a[0], a[1], FAR_FIELD], B = [b[0], b[1], FAR_FIELD];
@@ -1215,7 +1216,7 @@ function build() {
     const L = SURVEY.lines;
     for (const l of [...L.edge_of_pavement, ...L.top_of_bank]) {   // with the site plan: only the street's own edge (the old drive's edges are gone)
       if (!(opts.landscape && D.landscape)) { add(line3(l.pts, 0.06, pavementLineMat)); continue; }
-      for (let i = 0; i + 1 < l.pts.length; i++) if (l.pts[i][0] > 111.5 && l.pts[i + 1][0] > 111.5) add(line3([l.pts[i], l.pts[i + 1]], 0.06, pavementLineMat));
+      // (none: the street strip STREET has its own clean edges)
     }
     for (const l of L.swale) add(line3(l.pts, 0.06, swaleMat));
     if (!(opts.landscape && D.landscape)) for (const f of L.fence) for (let i = 0; i + 1 < f.pts.length; i++) {   // the site plan replaces the survey's fences
@@ -2467,6 +2468,10 @@ const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.99, 23.24]
 // The front yard (William 2026-11-14): groundcover instead of lawn from the house to the street edge, lot line to lot
 // line (the drive, walks, beds and planters sit on it); the street a clean strip from the surveyed edge of pavement.
 const FRONT_COVER = { color: 0x4d7a3b, poly: [[56, -2.4], [99.6, -1.68], [117.0, -1.3], [113.6, 29.5], [113.0, 60], [112.6, 85.2], [113.2, 98.3], [98.58, 98.31], [56, 97.3]] };
+// The street (William 2026-11-14: the survey's asphalt triangles flared and spilled onto the far side): one clean strip,
+// its west edge on the surveyed edge of pavement (straightened past the survey's ends), 20'-6" wide (assumed, as the
+// floor-plan project's assumed street).
+const STREET = { width: 20.6, west: [[113.4, 110], [113.2, 98.3], [112.6, 85.2], [113.0, 60], [113.6, 29.5], [117.0, -1.3], [117.3, -8]] };   // within the survey's ground
 // Terrace "linear pavers" (William 2026-11-13): open 3" joints at 4' o.c. out from the house (parallel to the kitchen
 // west wall `wall`), cut the full depth of the slab (the terrace is built as separate strips); the lengthwise control
 // joints stay.
@@ -2637,7 +2642,8 @@ function buildLandscape(D, add, capped, cut) {
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
   for (const P of terrStrips) box(P, terrLow - 0.3, terrTop, surf.concrete);
   { const isl = items.find(it => it.name === 'Bermed island' && it.poly);   // the island has its own surface (shell)
-    add(drapeArea(FRONT_COVER.poly, isl ? [isl.poly] : null, 0.03, mat(FRONT_COVER.color)));   // front yard groundcover
+    add(drapeArea([...STREET.west, ...STREET.west.slice().reverse().map(p => [p[0] + STREET.width, p[1]])], null, 0.12, mat('asphalt')));   // the street (a little up: the survey ground creases under it)
+  add(drapeArea(FRONT_COVER.poly, isl ? [isl.poly] : null, 0.03, mat(FRONT_COVER.color)));   // front yard groundcover
     // ... with some body (William 2026-11-14): low, irregular clumps on a jittered 2'-3" grid wherever nothing else is
     const hard = items.filter(it => it.kind === 'area' && it.poly).map(it => clean(it.poly));
     const blocked = p => inBand(p, 1.2) || hard.some(P => inside(p, P)) || D.rooms.some(r => inside(p, r.poly)) || D.surfaces.some(sf => inside(p, sf.poly))
