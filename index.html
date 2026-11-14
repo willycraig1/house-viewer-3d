@@ -1289,7 +1289,7 @@ function build() {
     // A frame-only wall (`frame`, W67 since 2026-11-13): its doors / sliders run up to the existing beam (their `head`),
     // and the wall is only the frame between them, with nothing above (the beam comes from the IFC).
     const glassWall = KITCHEN_WALL.glassWalls.includes(w.id);   // the kitchen's glass walls: heads from the openings too
-    const HEAD = w.frame || glassWall ? Math.max(HEIGHTS.head, ...ops.map(o => o.head ?? 0)) : HEIGHTS.head, TOP = w.frame ? HEAD : HEIGHTS.ceiling;
+    const HEAD = w.frame || glassWall ? Math.max(HEIGHTS.head, ...ops.map(o => o.head ?? 0)) : HEIGHTS.head, TOP = w.frame ? HEAD : (w.top ?? HEIGHTS.ceiling);   // `top`: under the lanai / studio framing (export)
 
     if (w.kind === 'screen') {   // lanai screen between the posts, under a white header beam (same as the kitchen's)
       const bm = extras('framing').find(it => it.id === w.id + '-BM');   // the IFC's perimeter beam on this screen line
@@ -1901,7 +1901,7 @@ function build() {
   // Posts and carport columns
   for (const c of D.columns) {
     if (c.material === 'aluminum') continue;   // kitchen columns: drawn slab to header above
-    const topZ = PORCH.posts.includes(c.id) ? porchBeamBottom() : CARPORT.columns.includes(c.id) ? carportBeamBottom() : HEIGHTS.screen;
+    const topZ = PORCH.posts.includes(c.id) ? porchBeamBottom() : CARPORT.columns.includes(c.id) ? carportBeamBottom() : (c.top ?? HEIGHTS.screen);   // `top`: under the lanai beam / joists (export)
     const [z0, z1] = capped(columnBase(c), topZ);   // posts bear on the slab, up to the beam they carry
     if (z1 <= z0) continue;
     const t = (c.angle || 0) * Math.PI / 180, ca = Math.cos(t), sa = Math.sin(t), hw = c.w / 2, hd = c.d / 2;
@@ -2198,6 +2198,7 @@ function build() {
         if (n[2] < -0.3) return flat ? mat(/studio/i.test(it.id) ? 'carportWood' : 'trim') : sof;   // exposed decks: lanai white, studio stained
         return mat('trim');   // fascia
       }));
+      add(ifcMeshes(extras('soffit'), () => mat('trim'), { cut }));   // level soffit panels (hip overhangs at 7'-5", lanai overhang under its joists)
     } else {
       for (const h of ROOF.hips) add(hipRoof(h.rect));
       for (const f of ROOF.flats) add(flatRoof(f.poly, !!f.exposed));
