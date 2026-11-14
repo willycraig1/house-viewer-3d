@@ -2182,7 +2182,8 @@ function build() {
       }
       if (EXTRAS && r.name === 'Studio') continue;   // exposed stained deck + joists (IFC)
       const cz = /carport/i.test(r.name) ? HEIGHTS.ceiling : HEIGHTS.ceiling - HEIGHTS.ceilingFinish;   // carport: its wood ceiling stays at 8'-0"
-      add(prism(carportCut(r), cz + 0.005, cz + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
+      for (const cp of (r.ceiling ?? [carportCut(r)]))   // r.ceiling (export): none under the lanai joists (the new kitchen)
+        add(prism(cp, cz + 0.005, cz + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
       if (r.name === CARPORT.room) {   // T&G board joints, boards running east-west
         const cp = carportCut(r), xs = cp.map(p => p[0]), ys = cp.map(p => p[1]), v = [];
         for (let y = Math.min(...ys) + CARPORT.boardW; y < Math.max(...ys); y += CARPORT.boardW) v.push(Math.min(...xs), y, HEIGHTS.ceiling, Math.max(...xs), y, HEIGHTS.ceiling);
@@ -2206,7 +2207,7 @@ function build() {
       add(hipRoof(r));
       if (ROOF.addition.cross) add(hipRoof(ROOF.addition.cross.rect));   // the east-west ridge that dies into the main roof
     }
-    for (const z of LANAI_JOISTS.extra) add(prism(z, HEIGHTS.ceiling + 0.02, HEIGHTS.ceiling + 0.07, mat('trim')));   // exposed deck (a hair above the lanai deck where they overlap)
+    if (!EXTRAS) for (const z of LANAI_JOISTS.extra) add(prism(z, HEIGHTS.ceiling + 0.02, HEIGHTS.ceiling + 0.07, mat('trim')));   // fallback only: the IFC's lanai deck covers it (it floated at 8' over the new kitchen); exposed deck (a hair above the lanai deck where they overlap)
     for (const l of ROOF.leantos || []) add(leanTo(l));   // the porch: this viewer's lean-to (rafters, fascia, end triangles)
   }
 
