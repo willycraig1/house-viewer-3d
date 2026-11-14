@@ -2445,6 +2445,7 @@ const SITE_EDITS = {
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
   L151: { skip: true },
   L89: { sym: 'powderpuff' },
+  L32: { sym: 'adirondack' }, L33: { sym: 'adirondack' },   // the 'stepping logs' by the fire pit are Adirondack chairs (William 2026-11-14)
   L139: { mat: 'pebbles' },   // the bermed island in shell gravel (William 2026-11-14)
   // the south path (step stones + the paver path round the wing planter + its joints) is rebuilt as PAVER_PATH
   L107: { skip: true }, L108: { skip: true }, L109: { skip: true }, L110: { skip: true }, L111: { skip: true },
@@ -2513,6 +2514,53 @@ function minusBand(P, a, b, hw) {
   const mid = clipU(Q, -hw, L + hw);
   return [clipU(Q, -Infinity, -hw), clipU(Q, L + hw, Infinity), clipV(mid, -Infinity, -hw), clipV(mid, hw, Infinity)]
     .filter(q => q.length >= 3 && Math.abs(area(q)) > 0.05).map(back);
+}
+// Solo Stove Bonfire (William 2026-11-14: the fire pit): 19-1/2" across, 14" tall, stainless, a ring of vent holes low
+// down, dark double wall inside, a small fire. At c on z0.
+const SOLO = { r: 19.5 / 24, h: 14 / 12 };
+function soloStove(c, z0) {
+  const g = new THREE.Group(), steel = mat(0xd3d6d8, { metalness: 0.25, roughness: 0.4, side: THREE.DoubleSide }), dark = mat(0x2a2a2a, { side: THREE.DoubleSide });
+  const cyl = (r0, r1, h, z, m, open = true) => { const k = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h, 40, 1, open), m); k.rotation.x = Math.PI / 2; k.position.z = z + h / 2; k.castShadow = true; g.add(k); };
+  const { r, h } = SOLO;
+  cyl(r * 0.88, r * 0.88, 0.08, 0, dark, false);                  // base ring
+  cyl(r, r, h - 0.08, 0.08, steel);                                // outer wall
+  cyl(r - 0.07, r - 0.07, h - 0.35, 0.35, dark);                   // inner wall
+  const rim = new THREE.Mesh(new THREE.RingGeometry(r - 0.07, r + 0.01, 40), steel); rim.position.z = h; g.add(rim);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(r - 0.07, 32), dark); floor.position.z = 0.36; g.add(floor);
+  for (let k = 0; k < 24; k++) {                                   // vent holes round the bottom
+    const a = k / 24 * Math.PI * 2, v = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.07), dark);
+    v.position.set(Math.cos(a) * (r + 0.005), Math.sin(a) * (r + 0.005), 0.2); v.rotation.z = a; g.add(v);
+  }
+  const wood = mat(0x5a3d26), fire = new THREE.MeshStandardMaterial({ color: 0xff9a3c, emissive: 0xff6a1a, emissiveIntensity: 0.9, transparent: true, opacity: 0.85 });
+  for (let k = 0; k < 3; k++) { const a = k / 3 * Math.PI * 2; g.add(member([Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5, 0.42], [-Math.cos(a) * r * 0.3, -Math.sin(a) * r * 0.3, 0.55], 0.1, wood)); }
+  for (let k = 0; k < 4; k++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.1 + k * 0.02, 0.5 + (k % 2) * 0.25, 8), fire);
+    f.rotation.x = Math.PI / 2; f.position.set(Math.cos(k * 1.7) * 0.12, Math.sin(k * 1.7) * 0.12, 0.75 + (k % 2) * 0.1); g.add(f); }
+  g.position.set(c[0], c[1], z0); return g;
+}
+// Polywood Adirondack chair (William 2026-11-14) on a plan rectangle, facing `toward`: slatted sloped seat, fanned back
+// to ~3'-2", wide flat arms at ~22", white (colour assumed). Local x across, y forward, z up, from the rectangle's middle.
+function adirondack(rect, toward, z0) {
+  const P = clean(rect), c = centroid(P), m = mat(0xf1f0eb, { roughness: 0.7 });
+  const f0 = [toward[0] - c[0], toward[1] - c[1]], fl = Math.hypot(...f0), f = [f0[0] / fl, f0[1] / fl], sv = [f[1], -f[0]];
+  const W = (x, y, z) => [c[0] + sv[0] * x + f[0] * y, c[1] + sv[1] * x + f[1] * y, z0 + z];
+  const g = new THREE.Group(), add = o => o && g.add(o);
+  const block = (x0, x1, y0, y1, z1, z2) => add(prism([W(x0, y0, 0), W(x1, y0, 0), W(x1, y1, 0), W(x0, y1, 0)].map(p => [p[0], p[1]]), z0 + z1, z0 + z2, m));
+  const board = (a, b, w, d) => add(box3(W(...a), W(...b), w, d, m));
+  for (const x of [-0.95, 0.95]) {
+    block(x - 0.06, x + 0.06, 0.95, 1.25, 0, 1.85);                 // front legs, up to the arms
+    block(x - 0.05, x + 0.05, -0.85, -0.6, 0, 1.0);                 // back legs
+    board([x, 1.2, 1.3], [x, -0.75, 0.95], 0.07, 0.3);              // seat rails
+    block(x < 0 ? x - 0.3 : x - 0.1, x < 0 ? x + 0.1 : x + 0.3, -0.95, 1.4, 1.85, 1.93);   // wide flat arms
+  }
+  board([-0.95, 1.22, 1.25], [0.95, 1.22, 1.25], 0.07, 0.3);        // front apron
+  for (let k = 0; k < 6; k++) { const y = 1.05 - k * 0.3, z = 1.32 - k * 0.075; board([-0.92, y, z], [0.92, y, z], 0.24, 0.06); }   // seat slats
+  for (let k = 0; k < 5; k++) {                                     // fanned back slats, the middle tallest
+    const xb = -0.6 + k * 0.3, xt = xb * 1.35, top = 3.2 - Math.abs(k - 2) * 0.12;
+    board([xb, -0.62, 0.95], [xt, -1.45, top], 0.26, 0.06);
+  }
+  board([-0.85, -1.15, 2.2], [0.85, -1.15, 2.2], 0.2, 0.2);         // back crossbar
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
 }
 function drapeArea(poly, holes, lift, material) {
   const shape = new THREE.Shape(clean(poly).map(p => new THREE.Vector2(p[0], p[1])));
@@ -2700,6 +2748,10 @@ function buildLandscape(D, add, capped, cut) {
       if (/planter wall$/i.test(nm)) { box(P, minG(P) - 0.4, wallTop(it, g0), mat('wall'), H); continue; }   // into the ground all round (no floating)
       if (TERRACE.test(nm) || it.poly === playP) continue;   // drawn above (terrace strips, play surface)
       if (nm === 'Play zone curb') { box(P, Math.min(minG(P), LS.curbTop) - 0.4, LS.curbTop, mat('concrete'), H); continue; }
+      if (it.sym === 'adirondack') {   // faces the fire pit
+        const pit = items.find(x => x.kind === 'circle' && /fire pit/i.test(x.name || '') && !x.mat) || items.find(x => /fire pit/i.test(x.name || ''));
+        add(adirondack(P, pit ? pit.c : centroid(clean(P)), gC(P))); continue;
+      }
       if (it.mat === 'deck') {
         const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
         let top = (onTerr ? terrTop : g0) + LS.deckLow;
@@ -2732,6 +2784,8 @@ function buildLandscape(D, add, capped, cut) {
       for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ring.push([it.c[0] + it.r * Math.cos(a), it.c[1] + it.r * Math.sin(a)]); }
       if (it.mat === 'planting' || it.mat === 'bed') { add(drapeArea(ring, null, LS.mulch + 0.01, surf[it.mat])); continue; }
       if (/urn/i.test(nm) && extras('planter').some(u => /urn/i.test(u.type))) continue;   // the IFC's urn is drawn instead
+      if (/fire pit/i.test(nm) && !it.mat) { add(soloStove(it.c, g0 + LS.slab)); continue; }   // the stove (William 2026-11-14)
+      if (/fire pit/i.test(nm)) { box(ring, g0 - 0.2, g0 + LS.slab, surf.concrete); continue; }   // its concrete pad
       const h = /urn/i.test(nm) ? LS.urn : /pot/i.test(nm) ? LS.pot : /fountain/i.test(nm) ? LS.fountain : /fire pit/i.test(nm) ? LS.firepit
         : /boulder/i.test(nm) ? LS.rock : LS.slab;
       if (!it.mat && !/pot/i.test(nm)) continue;
