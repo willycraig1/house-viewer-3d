@@ -2483,7 +2483,7 @@ const LANDSCAPE = {
   playBelowCurb: 2 / 12,   // play-zone surface 2" below the curb; what stands in it sits on that surface (William 2026-11-13)   // lanai planter wall: top flush with the lanai slab (z 0, William 2026-11-13)
   curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
   fence: 5 + 8 / 12,   // wood fences + gates 5'-8" above the ground (William 2026-11-14: 1' lower; was 6'-8")
-  teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
+  teepee: 9.5, swingBeam: 8, beam6x6: 0.5, log: 0.67,
   climbTop: [3, 4],   // rock-hop (climbing) piles: top 3'-4' above the finished floor (William 2026-11-14)
   tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
 };
@@ -2582,6 +2582,100 @@ function drapeArea(poly, holes, lift, material) {
 const dens = (pts, step = 2) => { const o = []; for (let i = 0; i + 1 < pts.length; i++) { const [a, b] = [pts[i], pts[i + 1]], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step));
   for (let k = 0; k < n; k++) o.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); } o.push(pts.at(-1)); return o; };
 // a straight member (post, leg, beam) between two 3D points, square section `w`
+// Bijou Build play sets (William 2026-11-14: more detail). From the maker's published specs: each "Mainstay" is a
+// five-leg tee-pee of pressure-treated 2x4s, 9'-6" tall on a ~7'-6" base, legs strapped to a steel hub at the apex,
+// a fabric "hover" platform 5' up and a "Clamber" climbing panel (polyester webbing with ABS rings); the "Rambler"
+// rope bridge is slung between two Mainstays' platforms; the swing arm carries "Sway" fabric sling swings.
+// Fabric colour, ring colours, bridge sag / slats and the swing seat shape are assumed (docs/DECISIONS.md).
+const BIJOU = { leg: [1.5 / 12, 3.5 / 12], platform: 5, hub: 0.7, fabric: 0x3f4448, strap: 0x1e1f20, steel: 0x2d3032,
+  rings: [0xd9822b, 0x3d8a8a, 0xd9b43a], rope: 0xcdbb95, panelBottom: 0.6, bridgeSag: 0.8, rail: 2.3, slat: 0.55,
+  seat: 1.6, seatW: 1.5, seatR: 0.55 };
+// a rectangular bar from a to b: sx across (horizontal), sy the other way
+function bar(a, b, sx, sy, material) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), L = A.distanceTo(B);
+  if (L < 1e-3) return null;
+  const z = B.clone().sub(A).normalize(), up = Math.abs(z.z) > 0.99 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
+  const x = new THREE.Vector3().crossVectors(z, up).normalize(), y = new THREE.Vector3().crossVectors(z, x);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, L), material);
+  m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  m.position.copy(A).add(B).multiplyScalar(0.5); m.castShadow = true; return m;
+}
+// one Mainstay: apex [x, y, z], feet [[x, y, z]...]; `face` = plan point the climbing panel faces; `avoid` = plan points
+// (the other tee-pees: bridge, swing arm) its face must not point at
+function bijouMainstay(apex, feet, face, avoid = []) {
+  const g = new THREE.Group(), B = BIJOU, wood = mat('wood'), fab = mat(B.fabric, { side: THREE.DoubleSide }), strap = mat(B.strap), steel = mat(B.steel, { metalness: 0.3, roughness: 0.5 });
+  const F = [...feet].sort((p, q) => Math.atan2(p[1] - apex[1], p[0] - apex[0]) - Math.atan2(q[1] - apex[1], q[0] - apex[0]));
+  const at = (f, z) => { const t = (z - f[2]) / (apex[2] - f[2]); return [f[0] + (apex[0] - f[0]) * t, f[1] + (apex[1] - f[1]) * t, z]; };
+  const top = apex[2] - B.hub * 0.5, zp = F[0][2] + B.platform;
+  for (const f of F) {   // 2x4 legs (1-1/2" across, 3-1/2" deep), up into the hub; a ground stake plate at each foot
+    g.add(bar(f, at(f, top), B.leg[0], B.leg[1], wood));
+    g.add(bar([f[0], f[1], f[2]], [f[0], f[1], f[2] + 0.04], 0.45, 0.3, steel));
+  }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.42, B.hub, 5), steel);   // the steel apex hub
+  hub.rotation.x = Math.PI / 2; hub.position.set(apex[0], apex[1], top); hub.castShadow = true; g.add(hub);
+  for (const f of F) { const p = at(f, top - B.hub * 0.6); g.add(bar(at(f, top - B.hub * 0.6 - 0.25), p, 0.16, 0.33, strap)); }   // hub straps round the legs
+  // hover platform: a fabric pentagon stretched between the legs at 5', a webbing hem, and strap wraps on the legs
+  const ring = F.map(f => at(f, zp)), c = [apex[0], apex[1]];
+  const inset = ring.map(p => [p[0] + (c[0] - p[0]) * 0.06, p[1] + (c[1] - p[1]) * 0.06]);
+  g.add(prism(inset, zp - 0.04, zp, fab));
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    g.add(member([a[0], a[1], zp - 0.02], [b[0], b[1], zp - 0.02], 0.09, strap));
+    g.add(bar(at(F[i], zp - 0.15), at(F[i], zp + 0.12), 0.2, 0.36, strap));
+  }
+  // climbing panel on the face toward `face`: webbing trapezoid between two legs, ground to platform, with rings
+  let best = 0, bd = -Infinity;
+  for (let i = 0; i < F.length; i++) { const a = F[i], b = F[(i + 1) % F.length], m = [(a[0] + b[0]) / 2 - c[0], (a[1] + b[1]) / 2 - c[1]], d = [face[0] - c[0], face[1] - c[1]];
+    let s = (m[0] * d[0] + m[1] * d[1]) / Math.hypot(...m) / (Math.hypot(...d) || 1);
+    for (const v of avoid) { const e = [v[0] - c[0], v[1] - c[1]]; if ((m[0] * e[0] + m[1] * e[1]) / Math.hypot(...m) / Math.hypot(...e) > 0.5) s -= 2; }
+    if (s > bd) { bd = s; best = i; } }
+  const fa = F[best], fb = F[(best + 1) % F.length], z0 = fa[2] + B.panelBottom;
+  const q = [at(fa, z0), at(fb, z0), at(fb, zp), at(fa, zp)].map((p, k) => { const o = k < 2 ? fb : fa, w = 0.1;   // pulled in off the legs
+    const tw = k % 3 === 0 ? 1 : -1, d = [fb[0] - fa[0], fb[1] - fa[1]], l = Math.hypot(...d); return [p[0] + tw * d[0] / l * w, p[1] + tw * d[1] / l * w, p[2]]; });
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute([...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3]], 3)); geo.computeVertexNormals();
+  const panel = new THREE.Mesh(geo, fab); panel.castShadow = true; g.add(panel);
+  const nrm = new THREE.Vector3(...q[1]).sub(new THREE.Vector3(...q[0])).cross(new THREE.Vector3(...q[3]).sub(new THREE.Vector3(...q[0]))).normalize();
+  const mid = [(fa[0] + fb[0]) / 2, (fa[1] + fb[1]) / 2]; if (nrm.x * (mid[0] - c[0]) + nrm.y * (mid[1] - c[1]) < 0) nrm.negate();
+  for (let r = 0; r < 4; r++) {   // four rows of hand / foot rings, staggered
+    const z = z0 + 0.55 + r * (zp - z0 - 0.9) / 3, L = at(fa, z), R = at(fb, z), n = r % 2 ? 2 : 3;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 1) / (n + 1), p = new THREE.Vector3(L[0] + (R[0] - L[0]) * t, L[1] + (R[1] - L[1]) * t, z).addScaledVector(nrm, 0.06);
+      const tor = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 8, 20), mat(B.rings[(r + k) % B.rings.length]));
+      tor.position.copy(p); tor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm); tor.castShadow = true; g.add(tor);
+    }
+  }
+  for (let k = 1; k < 5; k++) { const z = z0 + k * (zp - z0) / 5;   // webbing bands across the panel
+    const L = at(fa, z), R = at(fb, z); g.add(member(L.map((v, i) => i < 2 ? v + nrm.getComponent(i) * 0.03 : v), R.map((v, i) => i < 2 ? v + nrm.getComponent(i) * 0.03 : v), 0.05, strap)); }
+  return { group: g, platform: zp };
+}
+// Rambler rope bridge: wood slats on two deck ropes sagging between platform ends e0, e1 ([x, y, z]), hand ropes
+// above with netting, `w` wide
+function bijouBridge(e0, e1, w) {
+  const g = new THREE.Group(), B = BIJOU, rope = mat(B.rope), wood = mat('wood');
+  const d = [e1[0] - e0[0], e1[1] - e0[1]], L = Math.hypot(...d), u = [d[0] / L, d[1] / L], n = [-u[1], u[0]];
+  const P = (s, off, dz = 0) => [e0[0] + d[0] * s + n[0] * off, e0[1] + d[1] * s + n[1] * off, e0[2] + (e1[2] - e0[2]) * s - B.bridgeSag * 4 * s * (1 - s) + dz];
+  const N = Math.max(4, Math.round(L / B.slat));
+  for (let k = 0; k <= N; k++) { const s = k / N; g.add(bar(P(s, -w / 2, -0.04), P(s, w / 2, -0.04), 0.3, 0.07, wood)); }
+  const S = 16;
+  for (const side of [-1, 1]) for (const [dz, r] of [[-0.1, 0.06], [B.rail, 0.07]]) {
+    const off = side * (w / 2 + 0.03);   // deck ropes under the slats, hand ropes following the same sag
+    for (let k = 0; k < S; k++) g.add(member(P(k / S, off, dz), P((k + 1) / S, off, dz), r, rope));
+  }
+  for (let k = 1; k < N; k += 2) for (const side of [-1, 1]) {   // netting: uprights from the deck rope to the hand rope
+    const s = k / N, off = side * (w / 2 + 0.03); g.add(member(P(s, off, -0.1), P(s, off, B.rail), 0.035, rope));
+  }
+  return g;
+}
+// Sway swing: a fabric sling seat on two ropes from beam point `top` [x, y, z]; u = beam direction (plan)
+function swaySwing(top, u, zSeat) {
+  const g = new THREE.Group(), B = BIJOU, rope = mat(B.rope), fab = mat(B.fabric, { side: THREE.DoubleSide });
+  for (const s of [-1, 1]) { const x = top[0] + u[0] * s * B.seatW / 2, y = top[1] + u[1] * s * B.seatW / 2;
+    g.add(member([x, y, top[2]], [x, y, zSeat + 0.1], 0.04, rope)); }
+  const sh = new THREE.Mesh(new THREE.CylinderGeometry(B.seatR, B.seatR, B.seatW, 16, 1, true, Math.PI / 2, Math.PI), fab);
+  const Y = new THREE.Vector3(u[0], u[1], 0).normalize(), Z = new THREE.Vector3(0, 0, 1), X = new THREE.Vector3().crossVectors(Y, Z);
+  sh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z)); sh.position.set(top[0], top[1], zSeat + 0.1); sh.castShadow = true; g.add(sh);
+  return g;
+}
 function member(a, b, w, material) {
   const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), L = A.distanceTo(B);
   if (L < 1e-3) return null;
@@ -2752,16 +2846,17 @@ function buildLandscape(D, add, capped, cut) {
         const pit = items.find(x => x.kind === 'circle' && /fire pit/i.test(x.name || '') && !x.mat) || items.find(x => /fire pit/i.test(x.name || ''));
         add(adirondack(P, pit ? pit.c : centroid(clean(P)), gC(P))); continue;
       }
+      if (nm === 'Bridge') continue;   // the Bijou rope bridge, drawn with the tee-pees (bijouBridge)
       if (it.mat === 'deck') {
         const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
         let top = (onTerr ? terrTop : g0) + LS.deckLow;
         if (it === upper) top += LS.deckStep;
         else if (nm === 'Built-in bench' && upper) top = terrTop + LS.deckLow + LS.deckStep + LS.bench;
-        else if (nm === 'Bridge') top = g0 + LS.bridge;
         else if (/beam/i.test(nm)) top = g0 + LS.beam6x6;
         else if (/log/i.test(nm)) top = g0 + LS.log;
         else if (/box planter|trash/i.test(nm)) top = g0 + 2;
-        box(P, top - 0.25, top, surf.deck, H);
+        const beam = !onTerr && /beam/i.test(nm);   // the 6x6 lies on the play surface: solid down to it (William 2026-11-14)
+        box(P, beam ? g0 : top - 0.25, top, surf.deck, H);
         if (onTerr && !/bench/i.test(nm)) add(drapeArea(P, H, LS.mulch, surf.bed));   // mulch under the floating decks, like the beds around
         continue;
       }
@@ -2875,16 +2970,9 @@ function buildLandscape(D, add, capped, cut) {
     if (it.kind === 'line') {
       const pts = it.pts;
       if (nm === 'Tee-pee leg') {
-        const [ctr, foot] = pts;
-        add(member([foot[0], foot[1], gAt(foot[0], foot[1])], [ctr[0], ctr[1], Math.min(gAt(ctr[0], ctr[1]) + LS.teepee, cut)], 0.29, mat('wood'))); continue;
+        continue;   // drawn as Bijou Mainstays (below the loop)
       }
-      if (nm === 'Swings') {
-        const a = pts[0], b = pts.at(-1), g0 = gAt(a[0], a[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        if (g0 + LS.swingBeam < cut) add(member([a[0], a[1], g0 + LS.swingBeam], [b[0], b[1], g0 + LS.swingBeam], 0.45, mat('wood')));
-        add(member([m[0], m[1], Math.min(g0 + LS.swingBeam, cut)], [m[0], m[1], g0 + 1.6], 0.05, mat('iron')));
-        box([[m[0] - 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] - 0.3], [m[0] + 0.8, m[1] + 0.3], [m[0] - 0.8, m[1] + 0.3]], g0 + 1.5, g0 + 1.6, mat('iron'));
-        continue;
-      }
+      if (nm === 'Swings') continue;   // the Bijou swing arm, drawn with the tee-pees (below the loop)
       if (it.st === 'wpc' || it.st === 'fence' || it.st === 'gate') {
         const h = LS.fence;   // every fence and gate the same height (William 2026-11-13)
         for (let i = 0; i + 1 < pts.length; i++)   // front + side yards: FENCE_MAT, 5'-8"; rear yard: 42" wire (WIRE_FENCE)
@@ -2902,6 +2990,45 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (/^Access lane/.test(nm)) { add(line3(dens(pts), 0.12, lsLaneMat)); continue; }
       if (it.st === 'future') { add(line3(dens(pts), 0.2, lsPoolMat)); continue; }
+    }
+  }
+  // Bijou Build tee-pees (Mainstays) from the 'Tee-pee leg' lines (apex first, then foot), and the rope bridge
+  const tps = new Map();
+  for (const it of items) if (it.kind === 'line' && it.name === 'Tee-pee leg') { const [c, f] = it.pts, k = c.join();
+    if (!tps.has(k)) tps.set(k, { c, feet: [] }); tps.get(k).feet.push([f[0], f[1], gAt(f[0], f[1])]); }
+  const playC = playP ? centroid(clean(playP)) : [0, 0], decks = [];
+  for (const { c, feet } of tps.values()) {
+    const g0 = Math.min(...feet.map(f => f[2]));
+    if (g0 + BIJOU.platform > cut) { for (const f of feet) add(bar(f, [f[0] + (c[0] - f[0]) * 0.3, f[1] + (c[1] - f[1]) * 0.3, Math.min(f[2] + LS.teepee * 0.3, cut)], BIJOU.leg[0], BIJOU.leg[1], mat('wood'))); continue; }
+    const ms = bijouMainstay([c[0], c[1], g0 + LS.teepee], feet, playC, [...tps.values()].filter(t => t.c !== c).map(t => t.c)); add(ms.group);
+    decks.push({ c, z: ms.platform, r: Math.min(...feet.map(f => Math.hypot(f[0] - c[0], f[1] - c[1]))) * (1 - BIJOU.platform / LS.teepee) });
+  }
+  // Swing arm: one beam hub to hub just under the apexes of the two tee-pees the 'Swings' lines run between (the plan's
+  // lines end in mid-air off the legs), the two Sway swings side by side on it, at the plan lines' spacing
+  const sw = items.filter(it => it.kind === 'line' && it.name === 'Swings');
+  if (sw.length && decks.length > 1) {
+    const near = p => decks.reduce((x, y) => Math.hypot(y.c[0] - p[0], y.c[1] - p[1]) < Math.hypot(x.c[0] - p[0], x.c[1] - p[1]) ? y : x);
+    const A = near(sw[0].pts[0]), Bd = near(sw[0].pts.at(-1));
+    if (A !== Bd) {
+      const z = A.z - BIJOU.platform + LS.teepee - BIJOU.hub - 0.25, d = [Bd.c[0] - A.c[0], Bd.c[1] - A.c[1]], l = Math.hypot(...d), u = [d[0] / l, d[1] / l];
+      const mids = sw.map(it => [(it.pts[0][0] + it.pts.at(-1)[0]) / 2, (it.pts[0][1] + it.pts.at(-1)[1]) / 2]);
+      const mc = [mids.reduce((t, m) => t + m[0], 0) / mids.length, mids.reduce((t, m) => t + m[1], 0) / mids.length];
+      const t0 = (mc[0] - A.c[0]) * u[0] + (mc[1] - A.c[1]) * u[1], gap = mids.length > 1 ? Math.hypot(mids[0][0] - mids[1][0], mids[0][1] - mids[1][1]) : 0;
+      if (z < cut) {
+        add(bar([A.c[0] + u[0] * 0.3, A.c[1] + u[1] * 0.3, z], [Bd.c[0] - u[0] * 0.3, Bd.c[1] - u[1] * 0.3, z], 3.5 / 12, 5.5 / 12, mat('wood')));
+        mids.forEach((m, i) => { const t = t0 + (i - (mids.length - 1) / 2) * gap;
+          add(swaySwing([A.c[0] + u[0] * t, A.c[1] + u[1] * t, z - 0.23], u, A.z - BIJOU.platform + BIJOU.seat)); });
+      }
+    }
+  }
+  const br = items.find(it => it.kind === 'area' && it.name === 'Bridge');
+  if (br && decks.length > 1) {   // between the two platforms nearest its ends, from platform edge to platform edge
+    const Q = clean(br.poly), e = Q.map((p, i) => [p, Q[(i + 1) % Q.length]]).sort((s, t) => Math.hypot(s[0][0] - s[1][0], s[0][1] - s[1][1]) - Math.hypot(t[0][0] - t[1][0], t[0][1] - t[1][1]));
+    const mid = s => [(s[0][0] + s[1][0]) / 2, (s[0][1] + s[1][1]) / 2], w = Math.hypot(e[0][0][0] - e[0][1][0], e[0][0][1] - e[0][1][1]) - 0.3;
+    const ends = [mid(e[0]), mid(e[1])].map(p => decks.reduce((x, y) => Math.hypot(y.c[0] - p[0], y.c[1] - p[1]) < Math.hypot(x.c[0] - p[0], x.c[1] - p[1]) ? y : x));
+    if (ends[0] !== ends[1]) {
+      const [A, Bd] = ends, d = [Bd.c[0] - A.c[0], Bd.c[1] - A.c[1]], l = Math.hypot(...d), k0 = A.r * 0.75 / l, k1 = 1 - Bd.r * 0.75 / l;
+      if (Math.max(A.z, Bd.z) + BIJOU.rail < cut) add(bijouBridge([A.c[0] + d[0] * k0, A.c[1] + d[1] * k0, A.z], [A.c[0] + d[0] * k1, A.c[1] + d[1] * k1, Bd.z], w));
     }
   }
 }
