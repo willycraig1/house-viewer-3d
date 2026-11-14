@@ -133,7 +133,9 @@ import { toCreasedNormals, mergeGeometries } from 'three/addons/utils/BufferGeom
 // Confirmed by William 2026-10-30 unless marked "assumed". See docs/DECISIONS.md.
 // ---------------------------------------------------------------------------
 const HEIGHTS = {
-  ceiling:      8.0,      // top of walls (confirmed)
+  ceiling:      8.0,      // top of walls / plate, bottom of the ceiling joists (confirmed)
+  ceilingFinish: 1/12,    // 1" plaster under the joists: finished ceiling 7'-11" (William 2026-11-14)
+  lanaiDeck:    7.5,      // bottom of the lanai's T&G deck = joist top (William's tape 2026-11-14; the IFC carries the framing)
   head:         6 + 8/12, // door, window and slider heads, approx. (confirmed)
   sill:         3.0,      // default window sill where SILLS has no rule (assumed)
   counter:      3.0,      // 36" cabinets (confirmed)
@@ -153,7 +155,7 @@ const HEIGHTS = {
   doorOpenDeg:  70,       // how far door leaves are drawn open
 };
 
-// Floor levels: rooms and surfaces carry `floor_z` in the export (Studio -8", Carport and Front porch -4"); else 0.
+// Floor levels: rooms and surfaces carry `floor_z` in the export (Studio -7 1/2", Carport and Front porch -4"); else 0.
 
 // Window sills, measured from the floor of the room the window serves. Fallback only: the export gives every window
 // and slider its own `sill` (and `head`) from William's rules.
@@ -1327,7 +1329,7 @@ function build() {
     if (wFace && !windowWall && !isBrick) {
       clad = 'lap';   // the stucco option for the wing is gone (William 2026-11-14)
       const vext = wFace === 'L' ? vmax : vmin, sgn = wFace === 'L' ? 1 : -1;
-      W = { toXY, vext, sgn, start: Math.min(0, floorAt(toXY([(uMin + uMax) / 2, vext - sgn * 1.0]))) };   // siding starts on the slab (studio -8")
+      W = { toXY, vext, sgn, start: Math.min(0, floorAt(toXY([(uMin + uMax) / 2, vext - sgn * 1.0]))) };   // siding starts on the slab (studio -7 1/2")
       let [e0, e1] = faceRange(vext); if (XF) { e0 = Math.max(e0, XF.u[0]); e1 = Math.min(e1, XF.u[1]); }
       // inside corners: pull the siding's ends back out of any other wall it runs into
       const inOther = u => { const p = toXY([u, vext + sgn * 0.03]); return D.walls.some(x => x !== w && x.kind !== 'screen' && inside(p, x.footprint)); };
@@ -1539,7 +1541,7 @@ function build() {
     if (wFace && !windowWall) {
       const vx = wFace === 'L' ? vmax : vmin, sg = wFace === 'L' ? 1 : -1;
       let [r0, r1] = faceRange(vx); if (XF) { r0 = Math.max(r0, XF.u[0]); r1 = Math.min(r1, XF.u[1]); }
-      const fIn = Math.min(0, floorAt(toXY([(r0 + r1) / 2, vx - sg * 1.0])));   // the slab under this wall: studio -8"
+      const fIn = Math.min(0, floorAt(toXY([(r0 + r1) / 2, vx - sg * 1.0])));   // the slab under this wall: studio -7 1/2"
       const [z0, z1] = capped(HEIGHTS.foundation, fIn);
       if (z1 > z0 && r1 - r0 > 0.01) add(prism([[r0, vx - sg * 0.3], [r1, vx - sg * 0.3], [r1, vx + sg * CLAD.slabProud], [r0, vx + sg * CLAD.slabProud]].map(toXY), z0, z1, mat('slabEdge')));
     }
@@ -2157,7 +2159,7 @@ function build() {
     soffitMat(zones);
     // the main roof is left out under the popped-up porch roof (its plane runs back ~2' past the house wall)
     if (!ROOF_MAT) ROOF_MAT = maskMat(COLORS.shingle, (ROOF.leantos || []).map(l => clean(l.poly).map(p => [p[0] < 57 ? p[0] - 1.5 : p[0] - 0.02, p[1] + (p[1] < 50 ? 0.02 : -0.02)])));
-    for (const r of D.rooms) {   // ceilings at 8'-0" (the lanai has its exposed deck instead; the carport is wood)
+    for (const r of D.rooms) {   // plaster ceilings at 7'-11" (the lanai has its exposed deck instead; the carport is wood)
       if (/shed/i.test(r.name)) continue;
       if (r.name === LANAI_JOISTS.room) {   // white-painted T&G deck (lanai + the old lanai part of the kitchen), boards square to the joists
         const sq = D.walls.find(x => x.id === LANAI_JOISTS.square_to), L = Math.hypot(sq.b[0] - sq.a[0], sq.b[1] - sq.a[1]);
@@ -2170,7 +2172,8 @@ function build() {
             for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], fa = off(a) - k, fb = off(b) - k;
               if ((fa < 0) !== (fb < 0)) { const t = fa / (fa - fb); hits.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); } }
             hits.sort((p, q) => (p[0] * ax[0] + p[1] * ax[1]) - (q[0] * ax[0] + q[1] * ax[1]));
-            for (let i = 0; i + 1 < hits.length; i += 2) v.push(hits[i][0], hits[i][1], HEIGHTS.ceiling - 0.004, hits[i + 1][0], hits[i + 1][1], HEIGHTS.ceiling - 0.004);
+            const zj = (EXTRAS ? HEIGHTS.lanaiDeck : HEIGHTS.ceiling) - 0.004;   // joints on the deck's underside
+            for (let i = 0; i + 1 < hits.length; i += 2) v.push(hits[i][0], hits[i][1], zj, hits[i + 1][0], hits[i + 1][1], zj);
           }
         }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
@@ -2178,7 +2181,8 @@ function build() {
         continue;
       }
       if (EXTRAS && r.name === 'Studio') continue;   // exposed stained deck + joists (IFC)
-      add(prism(carportCut(r), HEIGHTS.ceiling + 0.005, HEIGHTS.ceiling + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
+      const cz = /carport/i.test(r.name) ? HEIGHTS.ceiling : HEIGHTS.ceiling - HEIGHTS.ceilingFinish;   // carport: its wood ceiling stays at 8'-0"
+      add(prism(carportCut(r), cz + 0.005, cz + 0.06, mat(/carport/i.test(r.name) ? 'carportWood' : 'trim'), { shadow: false }));
       if (r.name === CARPORT.room) {   // T&G board joints, boards running east-west
         const cp = carportCut(r), xs = cp.map(p => p[0]), ys = cp.map(p => p[1]), v = [];
         for (let y = Math.min(...ys) + CARPORT.boardW; y < Math.max(...ys); y += CARPORT.boardW) v.push(Math.min(...xs), y, HEIGHTS.ceiling, Math.max(...xs), y, HEIGHTS.ceiling);
@@ -2675,8 +2679,8 @@ const SITE_ADDS = [{ id: 'X-CM1', kind: 'plant', name: 'Crape myrtle', sym: 'cra
 // side to the drive; a short leg into the corner of the south parking stall. Centrelines in plan feet.
 const PAVER_PATH = { size: 2, margin: 4 / 12, legs: [[[34.7, 3.4], [73.6, 3.4], [73.6, 36.14]], [[73.6, 3.4], [82.4, 3.4]]] };
 // Door 07 (N34) slab (William 2026-11-14): replaces the survey's irregular studio patio: a rectangle square to the door,
-// as wide as the old one (6'-2"), out to the lanai planter wall's west face, top at the studio floor (-8").
-const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.99, 23.24], top: -8 / 12 };
+// as wide as the old one (6'-2"), out to the lanai planter wall's west face, top at the studio floor (-7 1/2").
+const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.99, 23.24], top: -7.5 / 12 };
 // The front yard (William 2026-11-14): groundcover instead of lawn from the house to the street edge, lot line to lot
 // line (the drive, walks, beds and planters sit on it); the street a clean strip from the surveyed edge of pavement.
 const FRONT_COVER = { color: 0x4d7a3b, poly: [[56, -2.4], [99.6, -1.68], [117.0, -1.3], [113.6, 29.5], [113.0, 60], [112.6, 85.2], [113.2, 98.3], [98.58, 98.31], [56, 97.3]] };
