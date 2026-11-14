@@ -2538,9 +2538,9 @@ function soloStove(c, z0) {
   g.position.set(c[0], c[1], z0); return g;
 }
 // Polywood Adirondack chair (William 2026-11-14) on a plan rectangle, facing `toward`: slatted sloped seat, fanned back
-// to ~3'-2", wide flat arms at ~22", white (colour assumed). Local x across, y forward, z up, from the rectangle's middle.
+// to ~3'-2", wide flat arms at ~22", in the casework's wood. Local x across, y forward, z up, from the rectangle's middle.
 function adirondack(rect, toward, z0) {
-  const P = clean(rect), c = centroid(P), m = mat(0xf1f0eb, { roughness: 0.7 });
+  const P = clean(rect), c = centroid(P), m = mat('wood');   // the casework's wood (William 2026-11-14)
   const f0 = [toward[0] - c[0], toward[1] - c[1]], fl = Math.hypot(...f0), f = [f0[0] / fl, f0[1] / fl], sv = [f[1], -f[0]];
   const W = (x, y, z) => [c[0] + sv[0] * x + f[0] * y, c[1] + sv[1] * x + f[1] * y, z0 + z];
   const g = new THREE.Group(), add = o => o && g.add(o);
