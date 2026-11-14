@@ -126,7 +126,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+import { toCreasedNormals, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------------------
 // HEIGHTS, in feet above the main finished floor (z = 0 = 10.91 ft NAVD88).
@@ -2404,7 +2404,8 @@ function build() {
     for (const o of ms) { metalUV(o); o.updateMatrixWorld(true); const d = metalDetails(o); if (o.parent !== model) d.applyMatrix4(o.parent.matrix); add(d); }
   }
   // Trees (survey positions and trunk sizes; heights and spreads estimated)
-  if (opts.trees && SURVEY) for (const t of SURVEY.trees) {
+  if (opts.trees && SURVEY) for (const t of [...SURVEY.trees, ...EXTRA_TREES]) {
+    const S = treeSpec(t);
     const g = new THREE.Group(); g.position.set(t.at[0], t.at[1], groundAt(t.at[0], t.at[1]));
     const trunkH = t.kind === 'pine' ? t.height * 0.8 : t.kind === 'palm' ? t.height * 0.85 : t.height * 0.4;
     const dia = t.dbh_in / 12;
@@ -2413,14 +2414,14 @@ function build() {
     g.add(trunk);
     if (cut < Infinity) {   // cutaway: trunk stub + dashed drip line, so the plan stays readable
       trunk.scale.y = Math.min(1, (cut - g.position.z) / trunkH); trunk.position.z = trunkH * trunk.scale.y / 2;
-      const bb = /bottlebrush/i.test(t.name), cR = bb ? BOTTLEBRUSH.drip : t.canopy, cC = bb ? BOTTLEBRUSH.center : [0, 0];   // the bottlebrush's drip line sits south
+      const cR = S ? S.drip : t.canopy, cC = S?.center || [0, 0];   // detailed trees: drip line from TREE_SPECS (the bottlebrush's sits south)
       const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(cC[0] + cR * Math.cos(a), cC[1] + cR * Math.sin(a)); }
       const dl = polylines([ring], 0.08, dripMat); dl.computeLineDistances(); g.add(dl);
       add(g);
-      if (opts.labels) label(t.name, t.at, 1, 'tree');
+      if (opts.labels) label(S ? S.label : t.name, t.at, 1, 'tree');
       continue;
     }
-    if (/bottlebrush/i.test(t.name)) { g.remove(trunk); g.add(bottlebrushTree(t)); add(g); if (opts.labels && !roofShown) label('Weeping bottlebrush', t.at, t.height * 0.8, 'tree'); continue; }
+    if (S) { g.remove(trunk); g.add(TREE_BUILDERS[S.type](t, S)); add(g); if (opts.labels && !roofShown) label(S.label, t.at, S.height * 0.8, 'tree'); continue; }
     const crownH = t.kind === 'pine' ? t.height * 0.3 : t.kind === 'palm' ? t.height * 0.3 : t.height * 0.7;
     const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat(t.kind === 'pine' ? 'pine' : t.kind === 'palm' ? 'palm' : 'leaves', { flatShading: true, transparent: true, opacity: 0.45, depthWrite: false }));
     crown.scale.set(t.canopy, t.canopy, crownH / 2);
@@ -2432,23 +2433,35 @@ function build() {
   }
 }
 
-// Weeping bottlebrush (Callistemon viminalis), the survey's 14" twin "BB" west of the living room (William 2026-11-14):
-// a tall vertical leader up to about the survey height, and a large low branch that carries the canopy's center well
-// south of the trunk; drip line about 44' across. Pendulous branchlets hang in curtains from every limb end, narrow
-// grey-green leaves along them, red 4" spikes on about half. Numbers in BOTTLEBRUSH (south offset and spread are
-// William's description, not measured); branchlets, leaves and spikes are instanced.
-const BOTTLEBRUSH = { height: 28, drip: 22, center: [0, -10], branchEnd: [0.5, -15, 13], leaderTop: 26, crownLow: 8, crownHigh: 17 };
-function bottlebrushTree(t) {
-  const g = new THREE.Group(), B = BOTTLEBRUSH, H = t.height || B.height, R = B.drip, C = B.center;
-  let seed = 52; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const bark = mat(0x5e4b3c), V = (x, y, z) => new THREE.Vector3(x, y, z);
-  const limb = (a, b, r0, r1) => {   // tapered round limb from a to b
+// ---------------------------------------------------------------------------
+// Major trees in detail (William 2026-11-14, from his photos + aerial in source/): survey position and trunk size, the
+// shape from the photos. TREE_SPECS is keyed by the survey tree's name; EXTRA_TREES are trees off the survey (the
+// golf course pines just west of the lot). Heights, spreads, leans and canopy offsets are read off photos: estimates.
+const TREE_SPECS = {
+  'Tree 14" twin (BB: bottlebrush?)': { type: 'bottlebrush', label: 'Weeping bottlebrush', height: 28, drip: 21, center: [3, -8] },
+  'Oak 32"': { type: 'oak', label: 'Live oak', height: 42, drip: 29 },
+  'Pine 31"': { type: 'pine', label: 'Slash pine', height: 56, drip: 16, lean: [0.03, 0.02] },
+  'Pine 26"': { type: 'pine', label: 'Slash pine', height: 57, drip: 17, lean: [-0.04, 0.03] },
+  'Pine 22"': { type: 'pine', label: 'Slash pine (leaning)', height: 48, drip: 13, lean: [-0.05, -0.32] },
+  'Tree 16"': { type: 'poinciana', label: 'Royal poinciana (neighbor)', height: 30, drip: 22, center: [0, 2] },
+};
+// golf course pines just west of the lot (photos + aerial; positions approximate, about +-10')
+const EXTRA_TREES = [[-66, 92, 9, 42], [-72, 82, 10, 44], [-68, 70, 8, 38], [-77, 62, 10, 45], [-70, 52, 9, 40], [-79, 42, 8, 36]]
+  .map(([x, y, d, h], i) => ({ name: 'Golf course pine ' + (i + 1), kind: 'pine', dbh_in: d, at: [x, y], height: h, canopy: 7,
+    spec: { type: 'pine', label: 'Pine (golf course)', height: h, drip: 7, lean: [(i % 2 ? 0.02 : -0.03), 0.02 * (i % 3 - 1)], slender: true } }));
+const treeSpec = t => t.spec || TREE_SPECS[t.name];
+
+// shared kit: tapered limbs along polylines, skeleton nodes to branch from, instanced foliage blobs, Spanish moss
+function treeKit(seed, barkColor) {
+  const g = new THREE.Group(), V = (x, y, z) => new THREE.Vector3(x, y, z), bark = mat(barkColor), nodes = [], geoms = [];
+  let s = seed; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const limb = (a, b, r0, r1) => {
     const L = a.distanceTo(b); if (L < 0.05) return;
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, L, 7), bark);
-    m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize()); m.castShadow = true; g.add(m);
+    const geo = new THREE.CylinderGeometry(Math.max(r1, 0.02), Math.max(r0, 0.02), L, r0 > 0.4 ? 10 : 6);   // merged into one mesh by done()
+    geo.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), b.clone().sub(a).normalize()), V(1, 1, 1)));
+    geoms.push(geo);
   };
-  const nodes = [];   // skeleton points that side limbs can grow from: [point, radius there]
-  const path = (pts, r0, r1, sample) => {   // a limb along a polyline, tapering r0 -> r1; records nodes every ~1.5'
+  const path = (pts, r0, r1, sample = true) => {   // limb along a polyline tapering r0 -> r1; nodes every ~1.5'
     const n = pts.length - 1;
     for (let i = 0; i < n; i++) {
       const ra = r0 + (r1 - r0) * i / n, rb = r0 + (r1 - r0) * (i + 1) / n; limb(pts[i], pts[i + 1], ra, rb);
@@ -2456,37 +2469,67 @@ function bottlebrushTree(t) {
         for (let j = 0; j < k; j++) nodes.push([pts[i].clone().lerp(pts[i + 1], j / k), ra + (rb - ra) * j / k]); }
     }
   };
-  const dia = t.dbh_in / 12 / Math.SQRT2;   // twin: two stems of about the same total section
-  // stem 1: the vertical leader, a slight wander up to near the survey height
-  const lead = [V(0.25, 0.2, 0), V(0.4, 0.35, 5)];
-  for (let z = 9; z <= B.leaderTop; z += 4) lead.push(V(0.4 + (rnd() - 0.5) * 0.9, 0.3 + (rnd() - 0.5) * 0.9, z));
-  lead.push(V(lead.at(-1).x, lead.at(-1).y, H));
-  path(lead, dia / 2, 0.06, true);
-  // stem 2: leans south and becomes the big branch that carries the canopy south
-  const E = B.branchEnd, big = [V(-0.2, -0.25, 0), V(-0.4, -1.2, 4.5), V(E[0] * 0.25, E[1] * 0.35, 8.5), V(E[0] * 0.6, E[1] * 0.7, 11.5), V(...E)];
-  path(big, dia / 2, 0.22, true);
-  // canopy targets: a dome over the drip circle (centered south of the trunk), plus tufts up the leader
-  const targets = [];
-  for (let k = 0; k < 120; k++) {
-    const a = rnd() * Math.PI * 2, d = R * Math.sqrt(0.08 + rnd() * 0.92) * 0.9, x = C[0] + Math.cos(a) * d, y = C[1] + Math.sin(a) * d;
-    const f = 1 - (d / R) ** 2; targets.push([V(x, y, B.crownLow + (B.crownHigh - B.crownLow) * f + rnd() * 2), 7]);
+  const nearest = (q, from = nodes) => { let b = from[0]; for (const nd of from) if (nd[0].z < q.z + 1 && nd[0].distanceTo(q) < b[0].distanceTo(q)) b = nd; return b; };
+  const twig = (q, rMax = 0.25) => {   // a small limb from the nearest node to q, arching up a little
+    const b = nearest(q), a = b[0], L = a.distanceTo(q);
+    path([a, a.clone().lerp(q, 0.5).add(V(0, 0, L * 0.1)), q], Math.min(b[1] * 0.6, 0.04 + L * 0.01, rMax), 0.03, false);
+    return a;
+  };
+  const blobs = (list, color) => {   // list of [pos, sx, sy, sz]: icosahedral leaf masses, one draw call
+    if (!list.length) return;
+    const m = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat(color, { flatShading: true }), list.length), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
+    list.forEach(([p, sx, sy, sz], i) => { Q.setFromAxisAngle(V(0, 0, 1), rnd() * 6.28); M.compose(p, Q, V(sx, sy, sz)); m.setMatrixAt(i, M); });
+    m.castShadow = true; m.instanceMatrix.needsUpdate = true; g.add(m);
+  };
+  const moss = (anchors, len = 2.5) => {   // Spanish moss: grey-green tufts hanging from limbs
+    if (!anchors.length) return;
+    const m = new THREE.InstancedMesh(new THREE.ConeGeometry(0.22, 1, 5), mat(0x9a9f8e, { flatShading: true }), anchors.length * 3), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
+    Q.setFromUnitVectors(V(0, 1, 0), V(0, 0, -1)); let i = 0;
+    for (const p of anchors) for (let k = 0; k < 3; k++) {
+      const l = len * (0.5 + rnd()); M.compose(p.clone().add(V((rnd() - 0.5) * 0.8, (rnd() - 0.5) * 0.8, -l / 2)), Q, V(0.6 + rnd() * 0.6, l, 0.6 + rnd() * 0.6)); m.setMatrixAt(i++, M);
+    }
+    m.instanceMatrix.needsUpdate = true; g.add(m);
+  };
+  const done = () => { if (geoms.length) { const m = new THREE.Mesh(mergeGeometries(geoms), bark); m.castShadow = true; g.add(m); geoms.forEach(x => x.dispose()); geoms.length = 0; } return g; };
+  return { g, V, rnd, limb, path, nodes, nearest, twig, blobs, moss, done };
+}
+// a dome of target points over a drip circle: center c [x, y], radius R, height zLow at the edge to zHigh in the middle
+function domeTargets(K, n, c, R, zLow, zHigh, jitter = 2, power = 1) {
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const a = K.rnd() * Math.PI * 2, d = R * Math.sqrt(0.05 + K.rnd() * 0.95) * 0.92, f = Math.pow(Math.max(0, 1 - (d / R) ** 2), power);
+    out.push(K.V(c[0] + Math.cos(a) * d, c[1] + Math.sin(a) * d, zLow + (zHigh - zLow) * f + K.rnd() * jitter));
   }
-  for (let k = 0; k < 16; k++) {
+  return out;
+}
+
+// Weeping bottlebrush (Callistemon viminalis), the survey's 14" twin "BB" west of the living room: one stem a tall
+// vertical leader to about the survey height, the other a large low branch that carries the canopy south (over the
+// living room, east a little per the aerial); pendulous branchlets in curtains, yellow-green narrow leaves, red 4" spikes
+// on about half, Spanish moss (photos). Branchlets, leaves and spikes are instanced.
+function bottlebrushTree(t, S) {
+  const K = treeKit(52, 0x5e4b3c), { g, V, rnd, path, nodes } = K, H = S.height, R = S.drip, C = S.center;
+  const dia = t.dbh_in / 12 / Math.SQRT2;   // twin: two stems of about the same total section
+  const lead = [V(0.25, 0.2, 0), V(0.4, 0.35, 5)];
+  for (let z = 9; z <= H - 2; z += 4) lead.push(V(0.4 + (rnd() - 0.5) * 0.9, 0.3 + (rnd() - 0.5) * 0.9, z));
+  lead.push(V(lead.at(-1).x, lead.at(-1).y, H));
+  path(lead, dia / 2, 0.06);
+  const E = [C[0] * 0.5 + 0.5, C[1] * 1.5, 13], big = [V(-0.2, -0.25, 0), V(-0.4, -1.2, 4.5), V(E[0] * 0.25, E[1] * 0.35, 8.5), V(E[0] * 0.6, E[1] * 0.7, 11.5), V(...E)];
+  path(big, dia / 2, 0.22);
+  const dome = domeTargets(K, 120, C, R, 8, 17), targets = dome.map(q => [q, 7]);
+  for (let k = 0; k < 16; k++) {   // tufts up the leader
     const z = 15 + rnd() * (H - 16), a = rnd() * Math.PI * 2, d = 1.5 + rnd() * 4 * (1 - (z - 15) / (H - 15));
     targets.push([V(0.4 + Math.cos(a) * d, 0.3 + Math.sin(a) * d, z), 5]);
   }
-  // scaffold limbs: the dome targets in 9 sectors round the canopy center; each sector gets one limb from the nearest
-  // skeleton node out toward its targets (rising), so the twigs branch off along it instead of fanning from one point
+  // scaffold limbs, one per sector of the dome, so the twigs branch off along them instead of fanning from one point
   const nodes0 = nodes.slice(), sectors = Array.from({ length: 9 }, () => []);
-  for (const tg of targets.slice(0, 120)) { const q = tg[0], a = Math.atan2(q.y - C[1], q.x - C[0]); sectors[Math.floor(((a + Math.PI) / (2 * Math.PI)) * 9) % 9].push(q); }
+  for (const q of dome) sectors[Math.floor(((Math.atan2(q.y - C[1], q.x - C[0]) + Math.PI) / (2 * Math.PI)) * 9) % 9].push(q);
   for (const sec of sectors) if (sec.length) {
     const m = sec.reduce((t, q) => t.add(q), V(0, 0, 0)).multiplyScalar(1 / sec.length), far = V(C[0] + (m.x - C[0]) * 1.25, C[1] + (m.y - C[1]) * 1.25, m.z);
     let best = nodes0[0]; for (const nd of nodes0) if (nd[0].z > 5 && nd[0].z < far.z && nd[0].distanceTo(far) < best[0].distanceTo(far)) best = nd;
-    const a = best[0], mid = a.clone().lerp(far, 0.5).add(V(0, 0, 1.2));
-    path([a, mid, far], Math.min(best[1] * 0.75, 0.2), 0.06, true);
+    path([best[0], best[0].clone().lerp(far, 0.5).add(V(0, 0, 1.2)), far], Math.min(best[1] * 0.75, 0.2), 0.06);
   }
-  // each target: a twig limb from the nearest skeleton node (arching up a little), branchlets hanging from its end
-  const strands = [];
+  const strands = [], mossAt = [];
   const hang = (o, n, len) => { for (let k = 0; k < n; k++) {
     const az = rnd() * Math.PI * 2, p = o.clone().add(V(Math.cos(az) * rnd() * 1.6, Math.sin(az) * rnd() * 1.6, (rnd() - 0.6) * 1.0));
     const drop = Math.min(p.z - 1.5, len * (0.6 + rnd() * 0.6)), out = V(p.x - C[0], p.y - C[1], 0).normalize().multiplyScalar(0.6 + rnd() * 0.8);
@@ -2494,36 +2537,108 @@ function bottlebrushTree(t) {
     strands.push(pts);
   } };
   for (const [q, n] of targets) {
-    let best = nodes[0]; for (const nd of nodes) if (nd[0].z < q.z + 1 && nd[0].distanceTo(q) < best[0].distanceTo(q)) best = nd;
-    const a = best[0], L = a.distanceTo(q), r0 = Math.min(best[1] * 0.6, 0.04 + L * 0.008);
-    const m1 = a.clone().lerp(q, 0.45).add(V(0, 0, L * 0.12)), m2 = a.clone().lerp(q, 0.8).add(V(0, 0, L * 0.06));
-    path([a, m1, m2, q], r0, 0.035, false);
+    const a = K.nearest(q)[0], L = a.distanceTo(q), m1 = a.clone().lerp(q, 0.45).add(V(0, 0, L * 0.12)), m2 = a.clone().lerp(q, 0.8).add(V(0, 0, L * 0.06));
+    path([a, m1, m2, q], Math.min(K.nearest(q)[1] * 0.6, 0.04 + L * 0.008), 0.035, false);
     hang(q, n, 4 + (1 - Math.hypot(q.x - C[0], q.y - C[1]) / R) * 3 + rnd() * 3);
-    if (L > 6) { hang(m1, 2, 4); hang(m2, 2, 4); }
+    if (L > 6) { hang(m1, 2, 4); hang(m2, 2, 4); if (rnd() < 0.5) mossAt.push(m1); }
   }
-  const twig = new THREE.CylinderGeometry(0.025, 0.035, 1, 4), leafG = new THREE.ConeGeometry(0.16, 1, 4), spikeG = new THREE.CylinderGeometry(0.08, 0.06, 1, 6);
-  const tw = new THREE.InstancedMesh(twig, mat(0x6d5a44), strands.length * 6), lf = new THREE.InstancedMesh(leafG, mat(0x5f7d52, { flatShading: true }), strands.length * 14);
+  const twigG = new THREE.CylinderGeometry(0.025, 0.035, 1, 4), leafG = new THREE.ConeGeometry(0.16, 1, 4), spikeG = new THREE.CylinderGeometry(0.08, 0.06, 1, 6);
+  const tw = new THREE.InstancedMesh(twigG, mat(0x6d5a44), strands.length * 6);
+  const lf = [new THREE.InstancedMesh(leafG, mat(0x7f9a45, { flatShading: true }), strands.length * 7), new THREE.InstancedMesh(leafG, mat(0x5f7d48, { flatShading: true }), strands.length * 7)];
   const sp = new THREE.InstancedMesh(spikeG, mat(0xc4232f, { flatShading: true }), strands.length);
-  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), Y = V(0, 1, 0);
-  let it = 0, il = 0, is = 0;
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Sc = new THREE.Vector3(), Y = V(0, 1, 0);
+  let it = 0, il = [0, 0], is = 0;
   for (const pts of strands) {
     for (let i = 0; i < 6; i++) {
       const a = pts[i], b = pts[i + 1], d = b.clone().sub(a), L = d.length();
-      Q.setFromUnitVectors(Y, d.normalize()); M.compose(a.clone().add(b).multiplyScalar(0.5), Q, S.set(1, L, 1)); tw.setMatrixAt(it++, M);
+      Q.setFromUnitVectors(Y, d.normalize()); M.compose(a.clone().add(b).multiplyScalar(0.5), Q, Sc.set(1, L, 1)); tw.setMatrixAt(it++, M);
     }
     for (let k = 0; k < 14; k++) {   // leaf tufts along the lower two thirds of the strand, hanging down
       const u = 0.3 + rnd() * 0.68, i = Math.min(5, Math.floor(u * 6)), f = u * 6 - i, p = pts[i].clone().lerp(pts[i + 1], f);
       const az = rnd() * Math.PI * 2; p.x += Math.cos(az) * 0.22; p.y += Math.sin(az) * 0.22;
-      Q.setFromUnitVectors(Y, V(Math.cos(az) * 0.5, Math.sin(az) * 0.5, -1).normalize()); M.compose(p, Q, S.set(1, 0.9 + rnd() * 0.6, 0.45)); lf.setMatrixAt(il++, M);
+      Q.setFromUnitVectors(Y, V(Math.cos(az) * 0.5, Math.sin(az) * 0.5, -1).normalize()); M.compose(p, Q, Sc.set(1, 0.9 + rnd() * 0.6, 0.45)); lf[k % 2].setMatrixAt(il[k % 2]++, M);
     }
     if (rnd() < 0.45) continue;   // about half the branchlets in flower: a 4" spike just above the tip
     const e = pts[5].clone().lerp(pts[6], 0.6), d = pts[6].clone().sub(pts[5]).normalize(); Q.setFromUnitVectors(Y, d);
-    M.compose(e, Q, S.set(1, 0.33, 1)); sp.setMatrixAt(is++, M);
+    M.compose(e, Q, Sc.set(1, 0.33, 1)); sp.setMatrixAt(is++, M);
   }
   sp.count = is;
-  for (const m of [tw, lf, sp]) { m.castShadow = true; m.instanceMatrix.needsUpdate = true; g.add(m); }
-  return g;
+  for (const m of [tw, ...lf, sp]) { m.castShadow = true; m.instanceMatrix.needsUpdate = true; g.add(m); }
+  K.moss(mossAt, 3);
+  return K.done();
 }
+
+// Live oak (Quercus virginiana), courtyard between the studio and the wing: short massive trunk, five or six huge
+// sinuous limbs reaching out almost level, a broad dense dome of small dark leaves, Spanish moss (photos).
+function liveOakTree(t, S) {
+  const K = treeKit(32, 0x4f4438), { V, rnd, path, nodes } = K, H = S.height, R = S.drip, r0 = t.dbh_in / 24;
+  path([V(0, 0, 0), V(0.3, 0.2, 3.5), V(0.4, 0.1, 6.5)], r0 * 1.15, r0 * 0.85);
+  const n = 6, base = rnd() * 6.28, mossAt = [];
+  for (let k = 0; k < n; k++) {   // major limbs: out and only gently up, a dip and rise on the way
+    const a = base + k / n * Math.PI * 2 + (rnd() - 0.5) * 0.5, reach = R * (0.7 + rnd() * 0.25), z0 = 5.5 + rnd() * 2, up = k % 3 === 0;
+    const at = (f, z) => V(Math.cos(a + 0.25 * Math.sin(f * 4)) * reach * f, Math.sin(a + 0.25 * Math.sin(f * 4)) * reach * f, z);
+    const pts = up ? [V(0.3, 0.1, z0), at(0.15, z0 + 6), at(0.25, z0 + 13), at(0.32, H * 0.72)]
+                   : [V(0.3, 0.1, z0), at(0.25, z0 + 4 + rnd() * 2), at(0.5, z0 + 6 + rnd() * 3), at(0.75, z0 + 6 + rnd() * 4), at(0.95, z0 + 9 + rnd() * 4)];
+    path(pts, r0 * (0.55 + rnd() * 0.15), 0.12);
+  }
+  const nodes0 = nodes.slice();
+  for (const nd of nodes0) if (nd[0].z > 7 && rnd() < 0.25) mossAt.push(nd[0]);
+  const leaves = [[], [], []];
+  for (const q of domeTargets(K, 230, [0, 0], R, 13, H - 3, 3, 0.7)) {   // leaf masses, each fed by a twig limb
+    K.twig(q, 0.18);
+    for (let j = 0; j < 6; j++) { const s = 1.1 + rnd() * 1.3; leaves[j % 3].push([q.clone().add(V((rnd() - 0.5) * 4, (rnd() - 0.5) * 4, (rnd() - 0.5) * 2)), s, s * (0.8 + rnd() * 0.4), s * 0.75]); }
+  }
+  K.blobs(leaves[0], 0x3a5a30); K.blobs(leaves[1], 0x46663a); K.blobs(leaves[2], 0x2f4b29);
+  K.moss(mossAt, 3.5);
+  return K.done();
+}
+
+// Slash pine (Pinus elliottii): tall bare trunk (some lean or sweep), a flat-topped open crown of upswept branches
+// ending in needle tufts (photos). `slender` = the young golf course pines: thin trunk, small crown.
+function slashPineTree(t, S) {
+  const K = treeKit(Math.round(t.at[0] * 7 + t.at[1] * 13) & 0xffff || 7, 0x6b5745), { V, rnd, path } = K, H = S.height, R = S.drip, L = S.lean || [0, 0], slim = !!S.slender;
+  const r0 = t.dbh_in / 24, top = H * (slim ? 0.86 : 0.78), off = z => V(L[0] * z * (1 - 0.25 * z / H), L[1] * z * (1 - 0.25 * z / H), z);
+  const trunk = []; for (let i = 0; i <= 6; i++) { const z = top * i / 6, p = off(z); p.x += (rnd() - 0.5) * 0.4 * (i > 0); p.y += (rnd() - 0.5) * 0.4 * (i > 0); trunk.push(p); }
+  path(trunk, r0, r0 * 0.3);
+  const crownTop = off(top), z0 = H * (slim ? 0.5 : 0.55), nb = slim ? 7 : 8, tufts = [[], []];
+  const tuft = (p, s) => { for (let j = 0; j < 5; j++) {   // a needle tuft = a loose cluster of small puffs
+    const q = p.clone().add(V((rnd() - 0.5) * s * 1.4, (rnd() - 0.5) * s * 1.4, (rnd() - 0.3) * s * 0.5)), r = s * (0.4 + rnd() * 0.3);
+    tufts[Math.floor(rnd() * 2)].push([q, r, r * (0.8 + rnd() * 0.4), r * 0.6]); } };
+  for (let k = 0; k < nb; k++) {
+    const z = z0 + (top - z0) * (k + rnd() * 0.6) / nb, s0 = off(z), a = k * 2.4 + rnd() * 0.8;
+    const len = R * (slim ? 0.7 : 0.75) * (0.65 + rnd() * 0.45) * (1 - 0.35 * (z - z0) / (top - z0 + 0.01));
+    const end = s0.clone().add(V(Math.cos(a) * len, Math.sin(a) * len, len * (0.25 + rnd() * 0.3) + (H - 2 - z) * 0.35));
+    const mid = s0.clone().lerp(end, 0.5).add(V(0, 0, -len * 0.08));
+    path([s0, mid, end], r0 * (slim ? 0.35 : 0.4), 0.08, false);
+    const ts = slim ? 1.8 : 2.8 + rnd() * 1.2;
+    tuft(end, ts); tuft(mid.clone().add(V(0, 0, ts * 0.4)), ts * 0.8);
+    if (!slim && rnd() < 0.7) { const a2 = a + (rnd() - 0.5) * 1.6, e2 = mid.clone().add(V(Math.cos(a2) * len * 0.5, Math.sin(a2) * len * 0.5, len * 0.3)); path([mid, e2], r0 * 0.22, 0.06, false); tuft(e2, ts * 0.9); }
+  }
+  tuft(crownTop.clone().add(V(0, 0, slim ? 1.5 : 2.5)), slim ? 2.2 : 3.5);
+  K.blobs(tufts[0], 0x4a6a37); K.blobs(tufts[1], 0x5b7c40);
+  return K.done();
+}
+
+// Royal poinciana (Delonix regia), the north neighbor's, survey 16" tree on the line: one trunk forking about 8' up into
+// a few big limbs that run out wide, a very broad flat umbrella of fine ferny light-green leaves (photo; not in bloom).
+function poincianaTree(t, S) {
+  const K = treeKit(16, 0x8a7a68), { V, rnd, path } = K, H = S.height, R = S.drip, C = S.center || [0, 0], r0 = t.dbh_in / 24;
+  path([V(0, 0, 0), V(0.2, 0.1, 4), V(0.3, 0.3, 8)], r0 * 1.1, r0 * 0.8);
+  const n = 5, base = rnd() * 6.28;
+  for (let k = 0; k < n; k++) {
+    const a = base + k / n * Math.PI * 2 + (rnd() - 0.5) * 0.6, reach = R * (0.6 + rnd() * 0.3);
+    const p = f => V(C[0] * f + Math.cos(a) * reach * f, C[1] * f + Math.sin(a) * reach * f, 8 + (H - 12) * Math.sin(f * Math.PI / 2) * (0.75 + rnd() * 0.15));
+    path([V(0.3, 0.3, 8), p(0.25), p(0.55), p(0.85)], r0 * 0.5, 0.1);
+  }
+  const leaves = [[], []];
+  for (const q of domeTargets(K, 120, C, R, H - 9, H - 2, 1.5, 0.5)) {
+    K.twig(q, 0.14);
+    for (let j = 0; j < 2; j++) { const s = 2.6 + rnd() * 1.6; leaves[j].push([q.clone().add(V((rnd() - 0.5) * 2.5, (rnd() - 0.5) * 2.5, (rnd() - 0.5) * 0.8)), s, s, s * 0.35]); }
+  }
+  K.blobs(leaves[0], 0x5f8a3c); K.blobs(leaves[1], 0x6f9a44);
+  return K.done();
+}
+const TREE_BUILDERS = { bottlebrush: bottlebrushTree, oak: liveOakTree, pine: slashPineTree, poinciana: poincianaTree };
 
 // ---------------------------------------------------------------------------
 // Site plan (house.json `landscape`: the floor-plan project's revised site plan, plan feet). Flat surfaces are draped on
