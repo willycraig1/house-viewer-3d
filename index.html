@@ -2481,6 +2481,33 @@ const LANDSCAPE = {
   tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
 };
 // a polygon (with holes) as a surface following the ground, `lift` above it (triangles split to <= 3 ft)
+// A rounded boulder on a plan outline: rings drawn in toward the middle as they rise (a squashed dome), a little
+// irregular (seeded), with a short skirt into the ground. z0 = ground, h = height. (William 2026-11-14: rounder rocks)
+function roundRock(poly, z0, h, seed, material) {
+  let sd = seed; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+  const P = clean(poly), N = P.length, K = 5, rings = [];
+  if (area(P) < 0) P.reverse();   // counter-clockwise, so the faces point out
+  const c = centroid(P);
+  const jit = P.map(() => 0.92 + rnd() * 0.16);
+  for (let k = 0; k <= K; k++) {
+    const th = k / K * 1.35, f = Math.cos(th), z = z0 + h * Math.sin(th) / Math.sin(1.35) * (k ? 1 : 0);
+    rings.push(P.map((p, i) => [c[0] + (p[0] - c[0]) * f * (k ? jit[i] : 1), c[1] + (p[1] - c[1]) * f * (k ? jit[i] : 1), z]));
+  }
+  const top = [c[0], c[1], z0 + h * (1.02 + rnd() * 0.06)], base = rings[0].map(p => [p[0], p[1], z0 - 0.25]), tris = [];
+  const band = (A, B) => { for (let i = 0; i < N; i++) { const j = (i + 1) % N; tris.push([A[i], A[j], B[j]], [A[i], B[j], B[i]]); } };
+  band(base, rings[0]); for (let k = 0; k < K; k++) band(rings[k], rings[k + 1]);
+  for (let i = 0; i < N; i++) tris.push([rings[K][i], rings[K][(i + 1) % N], top]);
+  return triMesh(tris, material);
+}
+// Plan polygon minus a rectangle given in a segment frame (a -> b, half width hw): up to 4 pieces (Sutherland-Hodgman).
+function minusBand(P, a, b, hw) {
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L], n = [-u[1], u[0]];
+  const Q = P.map(p => [(p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1], (p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1]]);
+  const back = q => q.map(([s, t]) => [a[0] + u[0] * s + n[0] * t, a[1] + u[1] * s + n[1] * t]);
+  const mid = clipU(Q, -hw, L + hw);
+  return [clipU(Q, -Infinity, -hw), clipU(Q, L + hw, Infinity), clipV(mid, -Infinity, -hw), clipV(mid, hw, Infinity)]
+    .filter(q => q.length >= 3 && Math.abs(area(q)) > 0.05).map(back);
+}
 function drapeArea(poly, holes, lift, material) {
   const shape = new THREE.Shape(clean(poly).map(p => new THREE.Vector2(p[0], p[1])));
   for (const h of holes || []) shape.holes.push(new THREE.Path(clean(h).map(p => new THREE.Vector2(p[0], p[1]))));
@@ -2513,7 +2540,25 @@ const lsJointMat = new THREE.LineBasicMaterial({ color: 0x6f6b64 });
 const lsLaneMat = new THREE.LineDashedMaterial({ color: 0xd9822b, dashSize: 1.5, gapSize: 1 });
 const lsPoolMat = new THREE.LineDashedMaterial({ color: COLORS.pool, dashSize: 2, gapSize: 1.2 });
 function buildLandscape(D, add, capped, cut) {
-  const items = [...D.landscape, ...SITE_ADDS].filter(it => !SITE_EDITS[it.id]?.skip).map(it => SITE_EDITS[it.id] ? { ...it, ...SITE_EDITS[it.id] } : it), by = {};
+  const items0 = [...D.landscape, ...SITE_ADDS].filter(it => !SITE_EDITS[it.id]?.skip).map(it => SITE_EDITS[it.id] ? { ...it, ...SITE_EDITS[it.id] } : it), by = {};
+  // the paver path stays clear (William 2026-11-14): beds, plantings and lawn pieces are cut back from its gravel band,
+  // plants standing in it are left out
+  const pathSegs = PAVER_PATH.legs.flatMap(l => l.slice(1).map((b, i) => [l[i], b])), phw = PAVER_PATH.size / 2 + PAVER_PATH.margin + 0.05;
+  const inBand = (p, extra = 0) => pathSegs.some(([a, b]) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    const s = (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1], t = -(p[0] - a[0]) * u[1] + (p[1] - a[1]) * u[0]; return s > -phw - extra && s < L + phw + extra && Math.abs(t) < phw + extra; });
+  const items = [];
+  for (const it of items0) {
+    if (it.kind === 'plant' && inBand(it.c, (it.r || 0) * 0.8)) continue;   // no shrub spreading over the path
+    if (it.kind !== 'area' || !['bed', 'planting', 'sod', 'turf'].includes(it.mat) || /planter/i.test(it.name || '')) { items.push(it); continue; }
+    let pieces = [clean(it.poly)];
+    for (const [a, b] of pathSegs) pieces = pieces.flatMap(P => {
+      const xs = P.map(p => p[0]), ys = P.map(p => p[1]), r = phw + 0.1;
+      if (Math.max(...xs) < Math.min(a[0], b[0]) - r || Math.min(...xs) > Math.max(a[0], b[0]) + r || Math.max(...ys) < Math.min(a[1], b[1]) - r || Math.min(...ys) > Math.max(a[1], b[1]) + r) return [P];
+      return minusBand(P, a, b, phw);
+    });
+    if (pieces.length === 1 && pieces[0].length === clean(it.poly).length) { items.push(it); continue; }
+    for (const P of pieces) items.push({ ...it, poly: P, holes: (it.holes || []).filter(h => h.every(q => inside(q, P))) });
+  }
   for (const it of items) by[it.id] = it;
   const LS = LANDSCAPE;
   // the play zone's surface: level, 2" below the curb; anything standing in it sits on it (gAt)
@@ -2585,12 +2630,32 @@ function buildLandscape(D, add, capped, cut) {
     pcs.forEach((p, i) => { const r = find(i); top.set(r, Math.max(top.get(r) ?? -Infinity, p.g)); });
     pcs.forEach((p, i) => { if (pcs.some((q, j) => j !== i && find(j) === find(i))) woodTop.set(p.key, top.get(find(i)) + LS.fence); });
   }
+  const minG = P => { const pts = dens([...clean(P), clean(P)[0]], 1); return Math.min(...pts.map(p => gAt(p[0], p[1]))); };   // lowest ground along an outline
   const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
   for (const P of terrStrips) box(P, terrLow - 0.3, terrTop, surf.concrete);
   { const isl = items.find(it => it.name === 'Bermed island' && it.poly);   // the island has its own surface (shell)
-    add(drapeArea(FRONT_COVER.poly, isl ? [isl.poly] : null, 0.03, mat(FRONT_COVER.color))); }   // front yard groundcover
+    add(drapeArea(FRONT_COVER.poly, isl ? [isl.poly] : null, 0.03, mat(FRONT_COVER.color)));   // front yard groundcover
+    // ... with some body (William 2026-11-14): low, irregular clumps on a jittered 2'-3" grid wherever nothing else is
+    const hard = items.filter(it => it.kind === 'area' && it.poly).map(it => clean(it.poly));
+    const blocked = p => inBand(p, 1.2) || hard.some(P => inside(p, P)) || D.rooms.some(r => inside(p, r.poly)) || D.surfaces.some(sf => inside(p, sf.poly))
+      || D.walls.some(w => inside(p, w.footprint) || edgeDist(p, w.footprint) < 1.2);
+    let sd = 4242; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+    const pts = [], xs = FRONT_COVER.poly.map(p => p[0]), ys = FRONT_COVER.poly.map(p => p[1]), G = 2.25;
+    for (let x = Math.min(...xs); x < Math.max(...xs); x += G) for (let y = Math.min(...ys); y < Math.max(...ys); y += G) {
+      const p = [x + (rnd() - 0.5) * G * 0.8, y + (rnd() - 0.5) * G * 0.8];
+      if (inside(p, FRONT_COVER.poly) && !(isl && inside(p, isl.poly)) && !blocked(p)) pts.push(p);
+    }
+    if (pts.length) {
+      const im = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat(0xffffff, { flatShading: true }), pts.length), M = new THREE.Matrix4(), col = new THREE.Color();
+      pts.forEach((p, i) => {
+        const r = 0.75 + rnd() * 0.45, hz = 0.28 + rnd() * 0.22, q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rnd() * 6.28);
+        M.compose(new THREE.Vector3(p[0], p[1], gAt(p[0], p[1]) + 0.02), q, new THREE.Vector3(r, r * (0.8 + rnd() * 0.3), hz)); im.setMatrixAt(i, M);
+        col.setHex(FRONT_COVER.color).offsetHSL((rnd() - 0.5) * 0.03, 0, (rnd() - 0.5) * 0.08); im.setColorAt(i, col);
+      });
+      im.castShadow = false; im.receiveShadow = true; add(im);
+    } }
   { // the paver path: a gravel band under each segment, pavers at 2'-4" o.c., one at each corner
     const PP = PAVER_PATH, pitch = PP.size + PP.margin, hw = PP.size / 2 + PP.margin, hp = PP.size / 2;
     const placed = [];
@@ -2625,9 +2690,9 @@ function buildLandscape(D, add, capped, cut) {
     const nm = it.name || '';
     if (it.kind === 'area') {
       const P = it.poly, H = it.holes, g0 = gC(P);
-      if (/planter wall$/i.test(nm)) { box(P, g0 - 0.3, wallTop(it, g0), mat('wall'), H); continue; }
+      if (/planter wall$/i.test(nm)) { box(P, minG(P) - 0.4, wallTop(it, g0), mat('wall'), H); continue; }   // into the ground all round (no floating)
       if (TERRACE.test(nm) || it.poly === playP) continue;   // drawn above (terrace strips, play surface)
-      if (nm === 'Play zone curb') { box(P, Math.min(g0, LS.curbTop) - 0.3, LS.curbTop, mat('concrete'), H); continue; }
+      if (nm === 'Play zone curb') { box(P, Math.min(minG(P), LS.curbTop) - 0.4, LS.curbTop, mat('concrete'), H); continue; }
       if (it.mat === 'deck') {
         const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
         let top = (onTerr ? terrTop : g0) + LS.deckLow;
@@ -2645,14 +2710,16 @@ function buildLandscape(D, add, capped, cut) {
         const base = it.of && raised.has(it.of) ? soilTop(by[it.of]) : g0 + LS.mulch;
         box(P, base, base + LS.foliage, surf.planting, H); continue;
       }
-      if (it.mat === 'bed' && raised.has(it.id)) { box(P, g0 - 0.3, soilTop(it), surf.bed, H); continue; }
+      if (it.mat === 'bed' && raised.has(it.id)) { box(P, minG(P) - 0.4, soilTop(it), surf.bed, H); continue; }
       if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
       const lift = it.mat === 'concrete' ? LS.slab : it.mat === 'bed' ? LS.mulch : it.mat === 'sod' ? LS.flat - 0.02 : LS.flat;
       const onBerm = (REGRADE.berms || []).some(b => { const bi = items.find(x => x.name === b.name && x.poly); return bi && inside(centroid(clean(P)), bi.poly); });
       add(drapeArea(P, H, lift + (onBerm ? 0.15 : 0), surf[it.mat] || mat('grass')));   // on the curved berm: a bit higher, so the ground can't poke through
       continue;
     }
-    if (it.kind === 'rock') { const g0 = gC(it.poly); box(it.poly, g0 - 0.2, g0 + LS.rock, mat('rock', { flatShading: true })); continue; }
+    if (it.kind === 'rock') {   // rounded, sitting on its ground (a bit into it on the berm), no taller than ~0.6 x its width
+      const P = clean(it.poly), w = Math.min(Math.max(...P.map(p => p[0])) - Math.min(...P.map(p => p[0])), Math.max(...P.map(p => p[1])) - Math.min(...P.map(p => p[1])));
+      add(roundRock(P, gC(P) - 0.1, Math.min(LS.rock, w * 0.6), 7 + parseInt(it.id.slice(1)) * 13, mat('rock', { flatShading: true }))); continue; }
     if (it.kind === 'circle') {
       const g0 = gAt(it.c[0], it.c[1]), ring = [];
       for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ring.push([it.c[0] + it.r * Math.cos(a), it.c[1] + it.r * Math.sin(a)]); }
@@ -2661,6 +2728,21 @@ function buildLandscape(D, add, capped, cut) {
       const h = /urn/i.test(nm) ? LS.urn : /pot/i.test(nm) ? LS.pot : /fountain/i.test(nm) ? LS.fountain : /fire pit/i.test(nm) ? LS.firepit
         : /boulder/i.test(nm) ? LS.rock : LS.slab;
       if (!it.mat && !/pot/i.test(nm)) continue;
+      if (/boulder/i.test(nm)) {   // rounded; the rock-hop (climbing) boulders get smaller rocks stacked on top (William 2026-11-14)
+        const rm = mat('rock', { flatShading: true }), seed = 11 + parseInt(it.id.slice(1)) * 7;
+        let r8 = seed; const rnd = () => (r8 = (r8 * 16807) % 2147483647) / 2147483647;
+        const ring8 = (c, r) => Array.from({ length: 10 }, (_, k) => { const a = k / 10 * Math.PI * 2; return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]; });
+        const h0 = Math.min(h, it.r * 0.9);   // squat: no taller than ~0.9 x its radius
+        add(roundRock(ring8(it.c, it.r), g0, h0, seed, rm));
+        if (/rock-hop/i.test(nm)) {   // two smaller rocks stacked off-centre, each sitting into the one below
+          let z = g0 + h0 * 0.75, c = it.c, r = it.r;
+          for (let k = 0; k < 2; k++) {
+            const a = rnd() * Math.PI * 2; c = [c[0] + Math.cos(a) * r * 0.3, c[1] + Math.sin(a) * r * 0.3]; r *= 0.62 + rnd() * 0.12;
+            const hh = r * 0.8; add(roundRock(ring8(c, r), z - 0.08, hh, seed + 31 * (k + 1), rm)); z += hh * 0.7;
+          }
+        }
+        continue;
+      }
       box(ring, g0 - 0.2, g0 + h, /boulder/i.test(nm) ? mat('rock', { flatShading: true }) : /urn|pot|fountain/i.test(nm) ? mat('wall') : surf.concrete);
       continue;
     }
