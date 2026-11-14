@@ -1289,7 +1289,7 @@ function build() {
     // A frame-only wall (`frame`, W67 since 2026-11-13): its doors / sliders run up to the existing beam (their `head`),
     // and the wall is only the frame between them, with nothing above (the beam comes from the IFC).
     const glassWall = KITCHEN_WALL.glassWalls.includes(w.id);   // the kitchen's glass walls: heads from the openings too
-    const HEAD = (w.frame || glassWall) && ops.some(o => o.head != null) ? Math.max(...ops.map(o => o.head ?? 0)) : HEIGHTS.head,   // the openings' own heads (6'-7" under the lanai beam), not floored at 6'-8" TOP = w.frame ? HEAD : (w.top ?? HEIGHTS.ceiling);   // `top`: under the lanai / studio framing (export)
+    const HEAD = (w.frame || glassWall) && ops.some(o => o.head != null) ? Math.max(...ops.map(o => o.head ?? 0)) : HEIGHTS.head, TOP = w.frame ? HEAD : (w.top ?? HEIGHTS.ceiling);   // `top`: under the lanai / studio framing (export)   // HEAD: the openings' own heads (6'-7" under the lanai beam), not floored at 6'-8"
 
     if (w.kind === 'screen') {   // lanai screen between the posts, under a white header beam (same as the kitchen's)
       const bm = extras('framing').find(it => it.id === w.id + '-BM');   // the IFC's perimeter beam on this screen line
