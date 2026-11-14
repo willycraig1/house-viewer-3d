@@ -2478,6 +2478,7 @@ const LANDSCAPE = {
   curb: 0.5, deckLow: 0.5, deckStep: 0.67, bench: 1.5,
   fence: 5 + 8 / 12,   // wood fences + gates 5'-8" above the ground (William 2026-11-14: 1' lower; was 6'-8")
   teepee: 9.5, swingBeam: 8, bridge: 2.5, beam6x6: 0.5, log: 0.67,
+  climbTop: [3, 4],   // rock-hop (climbing) piles: top 3'-4' above the finished floor (William 2026-11-14)
   tree: 14, palm: 9, rock: 1.2, urn: 2.75, pot: 2, fountain: 2.5, firepit: 1.2,
 };
 // a polygon (with holes) as a surface following the ground, `lift` above it (triangles split to <= 3 ft)
@@ -2732,13 +2733,22 @@ function buildLandscape(D, add, capped, cut) {
         const rm = mat('rock', { flatShading: true }), seed = 11 + parseInt(it.id.slice(1)) * 7;
         let r8 = seed; const rnd = () => (r8 = (r8 * 16807) % 2147483647) / 2147483647;
         const ring8 = (c, r) => Array.from({ length: 10 }, (_, k) => { const a = k / 10 * Math.PI * 2; return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]; });
-        const h0 = Math.min(h, it.r * 0.9);   // squat: no taller than ~0.9 x its radius
+        const climb = /rock-hop/i.test(nm);
+        const h0 = climb ? Math.min(1.6, it.r * 1.05) : Math.min(h, it.r * 0.9);   // squat; climbing bases taller
         add(roundRock(ring8(it.c, it.r), g0, h0, seed, rm));
-        if (/rock-hop/i.test(nm)) {   // two smaller rocks stacked off-centre, each sitting into the one below
-          let z = g0 + h0 * 0.75, c = it.c, r = it.r;
-          for (let k = 0; k < 2; k++) {
-            const a = rnd() * Math.PI * 2; c = [c[0] + Math.cos(a) * r * 0.3, c[1] + Math.sin(a) * r * 0.3]; r *= 0.62 + rnd() * 0.12;
-            const hh = r * 0.8; add(roundRock(ring8(c, r), z - 0.08, hh, seed + 31 * (k + 1), rm)); z += hh * 0.7;
+        if (climb) {   // rocks stacked off-centre until the pile reaches 3'-4' above the finished floor (William 2026-11-14)
+          const T = LANDSCAPE.climbTop[0] + rnd() * (LANDSCAPE.climbTop[1] - LANDSCAPE.climbTop[0]);
+          for (let k = 0; k < 2; k++) {   // side rocks round the base: a clump, not a column
+            const a = rnd() * Math.PI * 2, rr = it.r * (0.55 + rnd() * 0.15), cc = [it.c[0] + Math.cos(a) * it.r * 0.95, it.c[1] + Math.sin(a) * it.r * 0.95];
+            add(roundRock(ring8(cc, rr), gAt(cc[0], cc[1]), rr * 0.8, seed + 97 * (k + 1), rm));
+          }
+          let z = g0 + h0 * 0.8, c = it.c, r = it.r;
+          for (let k = 0; k < 5 && z < T; k++) {
+            const a = rnd() * Math.PI * 2; c = [c[0] + Math.cos(a) * r * 0.4, c[1] + Math.sin(a) * r * 0.4];
+            r = Math.max(0.6, r * (0.85 + rnd() * 0.1));
+            let hh = Math.min(1.2, Math.max(0.6, r * 0.85));
+            if (z + hh * 0.85 >= T || k === 4) hh = Math.max(0.6, (T - z) / 0.85 + 0.05);   // the top rock lands on the target
+            add(roundRock(ring8(c, r), z - 0.08, hh, seed + 31 * (k + 1), rm)); z += hh * 0.8;
           }
         }
         continue;
