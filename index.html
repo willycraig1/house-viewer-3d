@@ -1383,7 +1383,7 @@ function build() {
         if (sillTrim) { box(o.from - ins, o.to + ins, bottom - ins, bottom, dIn); box(o.from - tw, o.to + tw, bottom - tw, bottom - ins, dFin); }   // sill
       }
       bottoms[o.id] = bottom; opInfo.push({ o, bottom, head, floorZ, hasSill, sides });
-      if (o.type === 'window' || o.type === 'slider') glazing(o.from, o.to, bottom, head, o.type === 'slider' && o.pocket !== true,
+      if (o.type === 'window' || o.type === 'slider') glazing(o.from, o.to, bottom, head, o.type === 'slider' && !o.pocket,   // pocket slider (door 07 / N34): one panel, no meeting rail
         o.pattern || (sides.some(r => r && (r.name === 'M. Bath' || r.name === 'Carport')) && o.type === 'window'
           ? { jalousie: JALOUSIE } : { rows: o.rows || 1 }));
       if (o.pocket === 'a' || o.pocket === 'b') {   // pocket door: leaf parked in the wall, 2" showing past the jamb
