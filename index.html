@@ -67,7 +67,7 @@
   <div class="sub" id="scheme">Proposed scheme</div>
   <div class="row">
     <button id="b3d" class="on">3D view</button>
-    <button id="btop">Top view</button>
+    <button id="btop">Plan view</button>
     <button id="bwalk" title="Eye-level walkthrough (or double-click a spot in the 3D view)">Walk</button>
   </div>
   <div id="walkhelp" class="help" hidden>Drag to look around. W/S or ↑/↓ walk, A/D step sideways, ←/→ turn,
@@ -393,7 +393,7 @@ const ELEMENT_RULES = [
   { re: /range|washer|dryer/i,                  z0: 0, z1: () => HEIGHTS.counter + 0.03, color: 'appliance', proud: true },
   { re: /built-in \(living/i,                  z0: 0, z1: 19 / 12, color: 'cabinet', kick: true },   // top flush with the 19" living sills
   { re: /counter|island|built-in/i,             z0: 0, z1: () => HEIGHTS.counter, color: 'counter' },
-  { re: /booth/i,                               z0: 0, z1: 1.5, color: 'upholstery', kick: true },
+  { re: /booth|banquette/i,                     z0: 0, z1: 1.5, color: 'upholstery', kick: true },   // renamed Banquette in the export
   { re: /chairs/i,                              z0: 0, z1: 1.5, color: 'wood', solid: 'all' },
   { re: /table/i,                               z0: 2.33, z1: 2.5, color: 'wood', pedestal: true },
   { re: /bed/i,                                 z0: 0, z1: 2.0, color: 'bed' },
@@ -494,20 +494,21 @@ const TERRAZZO = (() => {
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(0.5, 0.5); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
 })();
-// Fences and gates, all one finish (William 2026-11-13): light wood, weathered grey, horizontal boards. 5-1/2" boards
+// Fences and gates, all one finish (William 2026-11-13): horizontal boards in the playset's wood (COLORS.wood, warm
+// brown / yellow, William 2026-11-14; was a grey-washed light wood). 5-1/2" boards
 // with 1/2" gaps (one 6" course per 1/4 of the tile), seeded so it looks the same on every load. UVs in feet (wallUV).
-const FENCE = { course: 0.5, post: 3.5 / 12, postSpacing: 6, postColor: 0xb9b2a6 };
+const FENCE = { course: 0.5, post: 3.5 / 12, postSpacing: 6, postColor: 0xa47e58 };
 const FENCE_MAT = (() => {
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const t = canvasTex(512, 256, (g, w, h) => {
     const n = 4, ch = h / n, gap = ch / 12;
-    g.fillStyle = '#6a665f'; g.fillRect(0, 0, w, h);                                  // shadow in the gaps
+    g.fillStyle = '#4a3a2a'; g.fillRect(0, 0, w, h);                                  // shadow in the gaps
     for (let i = 0; i < n; i++) {
-      const y = i * ch + gap / 2, bh = ch - gap, l = 222 + rnd() * 14 | 0;           // each board a slightly different tone
-      g.fillStyle = `rgb(${l},${l - 10},${l - 26})`; g.fillRect(0, y, w, bh);       // light wood
-      for (let k = 0; k < 70; k++) {                                                  // grain + grey weathering streaks
-        const v = 178 + rnd() * 40 | 0, a = 0.10 + rnd() * 0.22;
-        g.fillStyle = rnd() < 0.55 ? `rgba(${v},${v},${v + 4},${a})` : `rgba(${v + 20},${v + 2},${v - 25},${a})`;
+      const y = i * ch + gap / 2, bh = ch - gap, l = rnd() * 16 - 8 | 0;           // each board a slightly different tone
+      g.fillStyle = `rgb(${176 + l},${138 + l},${99 + l})`; g.fillRect(0, y, w, bh);   // the playset's wood
+      for (let k = 0; k < 70; k++) {                                                  // grain: darker brown + lighter yellow streaks
+        const a = 0.10 + rnd() * 0.22;
+        g.fillStyle = rnd() < 0.55 ? `rgba(122,88,56,${a})` : `rgba(214,178,122,${a})`;
         g.fillRect(rnd() * w, y + rnd() * bh, 30 + rnd() * 200, 1 + rnd() * 2);
       }
       g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(0, y, w, 1.5);              // lit top edge
@@ -590,6 +591,55 @@ const METAL_MAT = (() => {
   return new THREE.MeshStandardMaterial({ map: t, color: METAL_ROOF.color, metalness: 0.45, roughness: 0.45, side: THREE.DoubleSide });
 })();
 const roofTop = () => opts.roofFinish === 'metal' ? METAL_MAT : mat('shingle', { side: THREE.DoubleSide });
+// Standing seams as geometry (William 2026-11-14: ribs + 4" edge flashing): on every up-facing triangle of a metal
+// roof mesh, a 1" x 1" rib along the fall line every 16"; the outline of the roofing (edges used by one triangle only)
+// gets a 4" metal edge flashing turned down over the fascia.
+const FLASH_MAT = new THREE.MeshStandardMaterial({ color: METAL_ROOF.color, metalness: 0.45, roughness: 0.45, side: THREE.DoubleSide });
+function metalDetails(mesh) {
+  const pos = mesh.geometry.attributes.position, off = mesh.position, rib = [], fl = [], tris = [];
+  const P = i => [pos.getX(i) + off.x, pos.getY(i) + off.y, pos.getZ(i) + off.z];
+  for (let i = 0; i + 2 < pos.count; i += 3) {
+    const t = [P(i), P(i + 1), P(i + 2)];
+    const u = t[1].map((c, k) => c - t[0][k]), v = t[2].map((c, k) => c - t[0][k]);
+    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const L = Math.hypot(...n); if (L < 1e-9) continue;
+    n = n.map(c => c / L); if (n[2] < 0) n = n.map(c => -c);
+    if (n[2] < 0.3) continue;
+    tris.push(t);
+    const hl = Math.hypot(n[0], n[1]); if (hl < 0.02) continue;   // flat: no seams
+    const d = [n[0] / hl, n[1] / hl], across = p => -p[0] * d[1] + p[1] * d[0], a = [-d[1], d[0], 0];
+    const us = t.map(across), lo = Math.ceil(Math.min(...us) / METAL_ROOF.seam), hi = Math.floor(Math.max(...us) / METAL_ROOF.seam);
+    for (let k = lo; k <= hi; k++) {
+      const uk = k * METAL_ROOF.seam, hits = [];
+      for (let e = 0; e < 3; e++) { const p = t[e], q = t[(e + 1) % 3], up = us[e], uq = us[(e + 1) % 3];
+        if ((up - uk) * (uq - uk) < 0 || (up === uk && uq !== uk)) { const f = (uk - up) / (uq - up); hits.push(p.map((c, j) => c + (q[j] - c) * f)); } }
+      if (hits.length < 2) continue;
+      const [p, q] = hits, w = 0.5 / 12, h = 1 / 12, lift = 0.01;
+      const o = x => x.map((c, j) => c + n[j] * lift);
+      const pl = o(p.map((c, j) => c - a[j] * w)), pr = o(p.map((c, j) => c + a[j] * w)), pt = o(p.map((c, j) => c + n[j] * h));
+      const ql = o(q.map((c, j) => c - a[j] * w)), qr = o(q.map((c, j) => c + a[j] * w)), qt = o(q.map((c, j) => c + n[j] * h));
+      rib.push(...pl, ...ql, ...qt, ...pl, ...qt, ...pt, ...pr, ...pt, ...qt, ...pr, ...qt, ...qr);
+    }
+  }
+  const key = p => p.map(c => Math.round(c * 50)).join(','), cnt = new Map();
+  for (const t of tris) for (let e = 0; e < 3; e++) { const k = [key(t[e]), key(t[(e + 1) % 3])].sort().join('|'); cnt.set(k, (cnt.get(k) || 0) + 1); }
+  for (const t of tris) for (let e = 0; e < 3; e++) {
+    const p = t[e], q = t[(e + 1) % 3], r = t[(e + 2) % 3];
+    if (cnt.get([key(p), key(q)].sort().join('|')) !== 1) continue;
+    let ox = -(q[1] - p[1]), oy = q[0] - p[0]; const L = Math.hypot(ox, oy); if (L < 1e-6) continue; ox /= L; oy /= L;
+    if ((r[0] - p[0]) * ox + (r[1] - p[1]) * oy > 0) { ox = -ox; oy = -oy; }   // outward, away from the triangle
+    const g = 0.03, top = 0.02, dn = 4 / 12;
+    const A = [p[0] + ox * g, p[1] + oy * g, p[2] + top], B = [q[0] + ox * g, q[1] + oy * g, q[2] + top];
+    const C = [B[0], B[1], B[2] - dn], Dd = [A[0], A[1], A[2] - dn];
+    const Ai = [p[0], p[1], p[2] + top], Bi = [q[0], q[1], q[2] + top];
+    fl.push(...A, ...B, ...C, ...A, ...C, ...Dd, ...Ai, ...Bi, ...B, ...Ai, ...B, ...A);   // face + the little top return
+  }
+  const g = new THREE.Group();
+  for (const [v, m] of [[rib, FLASH_MAT], [fl, FLASH_MAT]]) if (v.length) {
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); geo.computeVertexNormals();
+    const me = new THREE.Mesh(geo, m); me.castShadow = true; me.receiveShadow = true; g.add(me);
+  }
+  return g;
+}
 // UVs for the metal panels: u across the slope (horizontal, square to the fall line), v down the slope, in feet
 function metalUV(mesh) {
   const g = mesh.geometry, pos = g.attributes.position; if (!g.attributes.normal) g.computeVertexNormals();
@@ -599,6 +649,20 @@ function metalUV(mesh) {
     if (L < 1e-3) { dx = 1; dy = 0; } else { dx /= L; dy /= L; }
     const x = pos.getX(i) + mesh.position.x, y = pos.getY(i) + mesh.position.y;
     uv[2 * i] = -x * dy + y * dx; uv[2 * i + 1] = x * dx + y * dy;
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+// Shed: 4" lap siding (William 2026-11-14); UVs from vertical faces (verticalUV)
+const SHED_SIDING = new THREE.MeshStandardMaterial({ map: canvasTex(64, 64, (g, w, h) => {
+  const grd = g.createLinearGradient(0, 0, 0, h); grd.addColorStop(0, '#d6d3cb'); grd.addColorStop(0.15, '#f2f0ea'); grd.addColorStop(1, '#ffffff');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h); g.fillStyle = '#aaa69d'; g.fillRect(0, 0, w, 4);
+}, 4, 4 / 12), roughness: 0.9 });
+function verticalUV(mesh) {   // u along the face (horizontal), v = height, in feet
+  const g = mesh.geometry, pos = g.attributes.position; if (!g.attributes.normal) g.computeVertexNormals();
+  const nor = g.attributes.normal, uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    let nx = nor.getX(i), ny = nor.getY(i); const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
+    uv[2 * i] = -pos.getX(i) * ny + pos.getY(i) * nx; uv[2 * i + 1] = pos.getZ(i);
   }
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
@@ -636,6 +700,9 @@ pControls.enableDamping = true;
 pControls.maxPolarAngle = Math.PI / 2 - 0.02;
 const oControls = new OrbitControls(ortho, renderer.domElement);
 oControls.enableRotate = false;
+// plan view (William 2026-11-14): drag pans (left or right button, one finger); wheel / pinch zoom
+oControls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+oControls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
 oControls.screenSpacePanning = true;
 oControls.enabled = false;
 
@@ -1048,7 +1115,7 @@ function terrainMesh() {
   const put = (p, hex) => { pos.push(p[0], p[1], p[2]); c.setHex(hex); col.push(c.r, c.g, c.b); };
   // With the site plan on, the survey's old back-yard concrete (the lanai slab edge strip, outside the rooms) is lawn:
   // the plan replaces that paving (it showed as a sliver past the lanai planter).
-  const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && t.some(p => p[0] < 25);   // floors cover what's under the house
+  const oldPaving = (t, sf) => sf === 'concrete' && opts.landscape && DATA.landscape && t.some(p => p[0] < 25);   // floors cover what's under the house; the door 07 slab replaces the studio patio
   tri.forEach(([i, j, k], n) => { const sf = oldPaving([v[i], v[j], v[k]], surface[n]) ? 'lawn' : surface[n];
     const hex = COLORS[sf === 'lawn' ? 'grass' : sf]; put(v[i], hex); put(v[j], hex); put(v[k], hex); });
   for (let e = 0; e < hull.length; e += 2) {   // skirt from the surveyed edge down to the far-field lawn
@@ -1146,7 +1213,10 @@ function build() {
     const terr = add(terrainMesh()); if (terr) terr.userData.ground = true;   // walk mode: not an obstacle
     if (opts.contours) for (const o of contourLines()) add(o);
     const L = SURVEY.lines;
-    for (const l of [...L.edge_of_pavement, ...L.top_of_bank]) add(line3(l.pts, 0.06, pavementLineMat));
+    for (const l of [...L.edge_of_pavement, ...L.top_of_bank]) {   // with the site plan: only the street's own edge (the old drive's edges are gone)
+      if (!(opts.landscape && D.landscape)) { add(line3(l.pts, 0.06, pavementLineMat)); continue; }
+      for (let i = 0; i + 1 < l.pts.length; i++) if (l.pts[i][0] > 111.5 && l.pts[i + 1][0] > 111.5) add(line3([l.pts[i], l.pts[i + 1]], 0.06, pavementLineMat));
+    }
     for (const l of L.swale) add(line3(l.pts, 0.06, swaleMat));
     if (!(opts.landscape && D.landscape)) for (const f of L.fence) for (let i = 0; i + 1 < f.pts.length; i++) {   // the site plan replaces the survey's fences
       const a = f.pts[i], b = f.pts[i + 1], z0 = Math.min(groundAt(a[0], a[1]), groundAt(b[0], b[1]));
@@ -2290,8 +2360,8 @@ function build() {
     if (shed.length) {
       const c = mid(shed), dz = groundAt(c[0], c[1]) - HEIGHTS.grade;
       add(ifcMeshes(shed, (it, n, p) => it.ifc === 'IfcWindow' ? (p.glass ? glassMat : mat('trim'))
-        : it.ifc === 'IfcDoor' ? mat('door') : it.ifc === 'IfcRoof' ? (n[2] > 0.3 ? mat('shingle') : mat('trim')) : mat('siding'),
-        { cut, dz: () => dz }));
+        : it.ifc === 'IfcDoor' ? mat('door') : it.ifc === 'IfcRoof' ? (n[2] > 0.3 ? mat('shingle') : mat('trim')) : Math.abs(n[2]) < 0.3 ? SHED_SIDING : mat('trim'),
+        { cut, dz: () => dz })).traverse(o => { if (o.isMesh && o.material === SHED_SIDING) verticalUV(o); });
     }
     // the urn on its planter's soil (raised planter: wall top less 0.15, as buildLandscape)
     if (opts.landscape) for (const u of extras('planter').filter(it => /urn/i.test(it.type))) {
@@ -2328,7 +2398,10 @@ function build() {
     });
   }
   if (opts.landscape && D.landscape) buildLandscape(D, add, capped, cut);
-  if (opts.roofFinish === 'metal') model.traverse(o => { if (o.isMesh && o.material === METAL_MAT) metalUV(o); });
+  if (opts.roofFinish === 'metal') {
+    const ms = []; model.traverse(o => { if (o.isMesh && o.material === METAL_MAT) ms.push(o); });
+    for (const o of ms) { metalUV(o); o.updateMatrixWorld(true); const d = metalDetails(o); if (o.parent !== model) d.applyMatrix4(o.parent.matrix); add(d); }
+  }
   // Trees (survey positions and trunk sizes; heights and spreads estimated)
   if (opts.trees && SURVEY) for (const t of SURVEY.trees) {
     const g = new THREE.Group(); g.position.set(t.at[0], t.at[1], groundAt(t.at[0], t.at[1]));
@@ -2370,7 +2443,12 @@ const SITE_EDITS = {
   R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
   L151: { skip: true },
-  L89: { sym: 'powderpuff' },   // the powderpuff bush, modelled in detail (William 2026-11-14)   // the cardboard palm in the front addition planter (William 2026-11-13)
+  L89: { sym: 'powderpuff' },
+  L139: { mat: 'pebbles' },   // the bermed island in shell gravel (William 2026-11-14)
+  // the south path (step stones + the paver path round the wing planter + its joints) is rebuilt as PAVER_PATH
+  L107: { skip: true }, L108: { skip: true }, L109: { skip: true }, L110: { skip: true }, L111: { skip: true },
+  L112: { skip: true }, L113: { skip: true }, L114: { skip: true }, L115: { skip: true }, R19: { skip: true },
+  ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => ['R' + (20 + i), { skip: true }])),   // the powderpuff bush, modelled in detail (William 2026-11-14)   // the cardboard palm in the front addition planter (William 2026-11-13)
   L3: { pts: [[-50.82, 95.13], [55.55, 97.11]] },   // north fence on to the side-yard fence at x 55.55 (NE corner gap)
   R60: { pts: [[55.55, 91.82], [55.55, 97.11]] },
 };
@@ -2379,6 +2457,16 @@ const SITE_EDITS = {
 const OPENING_EDITS = { D37: { head: 7.0833 }, S4: { head: 7.0833 } };
 // Temporary site plan additions (export request 29): a crape myrtle in the front square planter.
 const SITE_ADDS = [{ id: 'X-CM1', kind: 'plant', name: 'Crape myrtle', sym: 'crape', c: [68.57, 62.8], r: 5 }];
+// The south / east path (William 2026-11-14, from his sketch): 2' x 2' square pavers, each in a 4" gravel margin, one
+// line from the quiet patio east along the house, through the south gate, along the wing's south side and up its east
+// side to the drive; a short leg into the corner of the south parking stall. Centrelines in plan feet.
+const PAVER_PATH = { size: 2, margin: 4 / 12, legs: [[[34.7, 3.4], [73.6, 3.4], [73.6, 36.14]], [[73.6, 3.4], [82.4, 3.4]]] };
+// Door 07 (N34) slab (William 2026-11-14): replaces the survey's irregular studio patio: a rectangle square to the door,
+// as wide as the old one (6'-2"), out to the lanai planter wall's west face, top at the studio floor (-8").
+const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.99, 23.24], top: -8 / 12 };
+// The front yard (William 2026-11-14): groundcover instead of lawn from the house to the street edge, lot line to lot
+// line (the drive, walks, beds and planters sit on it); the street a clean strip from the surveyed edge of pavement.
+const FRONT_COVER = { color: 0x4d7a3b, poly: [[56, -2.4], [99.6, -1.68], [117.0, -1.3], [113.6, 29.5], [113.0, 60], [112.6, 85.2], [113.2, 98.3], [98.58, 98.31], [56, 97.3]] };
 // Terrace "linear pavers" (William 2026-11-13): open 3" joints at 4' o.c. out from the house (parallel to the kitchen
 // west wall `wall`), cut the full depth of the slab (the terrace is built as separate strips); the lengthwise control
 // joints stay.
@@ -2501,6 +2589,36 @@ function buildLandscape(D, add, capped, cut) {
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
   for (const P of terrStrips) box(P, terrLow - 0.3, terrTop, surf.concrete);
+  { const isl = items.find(it => it.name === 'Bermed island' && it.poly);   // the island has its own surface (shell)
+    add(drapeArea(FRONT_COVER.poly, isl ? [isl.poly] : null, 0.03, mat(FRONT_COVER.color))); }   // front yard groundcover
+  { // the paver path: a gravel band under each segment, pavers at 2'-4" o.c., one at each corner
+    const PP = PAVER_PATH, pitch = PP.size + PP.margin, hw = PP.size / 2 + PP.margin, hp = PP.size / 2;
+    const placed = [];
+    for (const leg of PP.legs) for (let i = 0; i + 1 < leg.length; i++) {
+      const a = leg[i], b = leg[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L], n = [-u[1], u[0]];
+      const at = (s, t) => [a[0] + u[0] * s + n[0] * t, a[1] + u[1] * s + n[1] * t];
+      add(drapeArea([at(-hw, -hw), at(L + hw, -hw), at(L + hw, hw), at(-hw, hw)], null, 0.04, surf.gravel));
+      const k = Math.max(1, Math.round(L / pitch));
+      for (let j = 0; j <= k; j++) {
+        const s = L * j / k, c = at(s, 0);
+        if (placed.some(q => Math.hypot(q[0] - c[0], q[1] - c[1]) < PP.size * 0.9)) continue;   // shared corner
+        placed.push(c);
+        const ca = (ss, tt) => [c[0] + u[0] * ss + n[0] * tt, c[1] + u[1] * ss + n[1] * tt], g0 = gAt(c[0], c[1]);
+        box([ca(-hp, -hp), ca(hp, -hp), ca(hp, hp), ca(-hp, hp)], g0 - 0.1, g0 + 0.12, surf.concrete);
+      }
+    }
+  }
+  { // the slab at door 07
+    const W = D.walls.find(w => w.id === STUDIO_SLAB.wall), o = W && (W.openings || []).find(q => q.id === STUDIO_SLAB.opening);
+    if (W && o) {
+      const L = Math.hypot(W.b[0] - W.a[0], W.b[1] - W.a[1]), u = [(W.b[0] - W.a[0]) / L, (W.b[1] - W.a[1]) / L];
+      const n = W.face === 'L' ? [-u[1], u[0]] : [u[1], -u[0]];   // outward
+      const depth = (STUDIO_SLAB.to[0] - W.a[0]) * n[0] + (STUDIO_SLAB.to[1] - W.a[1]) * n[1], mid = (o.from + o.to) / 2;
+      const at = (s, t) => [W.a[0] + u[0] * s + n[0] * t, W.a[1] + u[1] * s + n[1] * t];
+      const P = [at(mid - STUDIO_SLAB.width / 2, 0), at(mid + STUDIO_SLAB.width / 2, 0), at(mid + STUDIO_SLAB.width / 2, depth), at(mid - STUDIO_SLAB.width / 2, depth)];
+      box(P, Math.min(...P.map(p => gAt(p[0], p[1]))) - 0.3, STUDIO_SLAB.top, surf.concrete);
+    }
+  }
   if (playP) { let lo = Infinity; for (const p of clean(playP)) lo = Math.min(lo, groundAt(p[0], p[1]));
     box(playP, Math.min(lo, playTop) - 0.3, playTop, surf.turf); }
   for (const it of items) {
@@ -2530,7 +2648,8 @@ function buildLandscape(D, add, capped, cut) {
       if (it.mat === 'bed' && raised.has(it.id)) { box(P, g0 - 0.3, soilTop(it), surf.bed, H); continue; }
       if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
       const lift = it.mat === 'concrete' ? LS.slab : it.mat === 'bed' ? LS.mulch : it.mat === 'sod' ? LS.flat - 0.02 : LS.flat;
-      add(drapeArea(P, H, lift, surf[it.mat] || mat('grass')));
+      const onBerm = (REGRADE.berms || []).some(b => { const bi = items.find(x => x.name === b.name && x.poly); return bi && inside(centroid(clean(P)), bi.poly); });
+      add(drapeArea(P, H, lift + (onBerm ? 0.15 : 0), surf[it.mat] || mat('grass')));   // on the curved berm: a bit higher, so the ground can't poke through
       continue;
     }
     if (it.kind === 'rock') { const g0 = gC(it.poly); box(it.poly, g0 - 0.2, g0 + LS.rock, mat('rock', { flatShading: true })); continue; }
