@@ -1885,7 +1885,7 @@ function build() {
   kitchenColumnPolys(D).forEach((pts, i) => {
     const C = kitchenColumns(D)[i];
     const fw = D.walls.find(w => w.frame && pts.some(p => edgeDist(p, w.footprint) < 0.3 || inside(p, w.footprint)));   // on a frame-only wall
-    const top = fw ? Math.max(HEIGHTS.head, ...(fw.openings || []).map(o => o.head ?? 0)) : HEIGHTS.head, [z0, z1] = capped(columnBase(C), top);
+    const top = C.top ?? (fw ? Math.max(...(fw.openings || []).map(o => o.head ?? HEIGHTS.head)) : HEIGHTS.head), [z0, z1] = capped(columnBase(C), top);   // C.top: the export (beam bottom)
     if (z1 > z0) add(prism(pts, z0, z1, C.material === 'aluminum' ? aluMat : mat('post')));
     if (top > cut) add(cutCap(pts));
   });
@@ -2671,9 +2671,9 @@ const SITE_EDITS = {
   L3: { pts: [[-50.82, 95.13], [55.55, 97.11]] },   // north fence on to the side-yard fence at x 55.55 (NE corner gap)
   R60: { pts: [[55.55, 91.82], [55.55, 97.11]] },
 };
-// Temporary opening edits (William 2026-11-13; export request 29): the kitchen's French doors and the horizontal
-// slider over the counter go up to the beam bottom, like D38 / S3 (7'-1").
-const OPENING_EDITS = { D37: { head: 7.0833 }, S4: { head: 7.0833 } };
+// Temporary opening edits (export request 29): none left. D37 / S4 heads now come from the export (6'-7", the lanai
+// beam bottom, William's tape 2026-11-14); the old 7'-1" override ran their frames past the wall top into the joists.
+const OPENING_EDITS = {};
 // Temporary site plan additions (export request 29): a crape myrtle in the front square planter.
 const SITE_ADDS = [{ id: 'X-CM1', kind: 'plant', name: 'Crape myrtle', sym: 'crape', c: [68.57, 62.8], r: 5 }];
 // The south / east path (William 2026-11-14, from his sketch): 2' x 2' square pavers, each in a 4" gravel margin, one
