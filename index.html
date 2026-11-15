@@ -3096,7 +3096,7 @@ function buildLandscape(D, add, capped, cut) {
     pcs.forEach((p, i) => { if (pcs.some((q, j) => j !== i && find(j) === find(i))) woodTop.set(p.key, top.get(find(i)) + LS.fence); });
   }
   const minG = P => { const pts = dens([...clean(P), clean(P)[0]], 1); return Math.min(...pts.map(p => gAt(p[0], p[1]))); };   // lowest ground along an outline
-  const isLanai = it => /^lanai/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up
+  const isLanai = it => /^(lanai|studio planter|pollinator)/i.test(it.name || '');   // the lanai planter (wall + bed): flush with the slab, not 18" up; the studio + pollinator planters match it (William 2026-11-15)
   const wallTop = (it, g0) => isLanai(it) ? LS.lanaiPlanterTop : g0 + LS.planterWall;
   const soilTop = bed => wallTop(bed, gC(bed.poly)) - 0.15;
   for (const P of terrStrips) box(P, terrLow - 0.3, terrTop, surf.concrete);
@@ -3260,7 +3260,7 @@ function buildLandscape(D, add, capped, cut) {
         // green leaf clumps, red "powderpuff" blooms on the outside of the canopy (size assumed: mature-ish)
         let seed = 89; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
         const stem = mat(0x6b5a48), leaf = mat(0x2f5a2c, { flatShading: true }), leaf2 = mat(0x3d6b35, { flatShading: true }), bloom = mat(0xd8283f, { flatShading: true });
-        const R = 3, H = 6;
+        const R = 3, H = 6, K = Math.max(1, (it.r || 0) / R);   // drawn 6' x 6', scaled up to the plan spread (William 2026-11-15: twice the size, r 6)
         for (let k = 0; k < 7; k++) {   // arching stems from the base
           const a = k / 7 * Math.PI * 2 + rnd() * 0.5, r1 = R * (0.55 + rnd() * 0.3), z1 = H * (0.55 + rnd() * 0.3);
           const mid = [Math.cos(a) * r1 * 0.45, Math.sin(a) * r1 * 0.45, z1 * 0.7], end = [Math.cos(a) * r1, Math.sin(a) * r1, z1];
@@ -3279,6 +3279,7 @@ function buildLandscape(D, add, capped, cut) {
           const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16 + rnd() * 0.07, 1), bloom);
           b.position.set(p.x + d.x * r * 0.95, p.y + d.y * r * 0.95, p.z + d.z * r * 0.75 * 0.95); grp.add(b);
         }
+        grp.scale.setScalar(K);
       } else if (it.sym === 'shrub') {
         const s = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), mat('foliage', { flatShading: true }));
         s.scale.set(it.r, it.r, it.r * LS.shrubFactor); s.position.z = it.r * LS.shrubFactor * 0.8; s.castShadow = true; grp.add(s);
