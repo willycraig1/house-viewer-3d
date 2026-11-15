@@ -544,7 +544,7 @@ const WIRE_MAT = (() => {
   return new THREE.MeshStandardMaterial({ map: t, transparent: true, depthWrite: false, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6 });
 })();
 // A wire fence run (or gate) a -> b with its top at `top` (one level for the whole fence, WIRE_FENCE.top): 4x4 posts
-// at 8' o.c. down to the ground, 2x4 rails laid flat (top level; bottom 0.3' over the higher ground of each bay), mesh.
+// at 8' o.c. from the ground up to the underside of the flat top rail, 2x4 rails laid flat (top level; bottom 0.3' over the higher ground of each bay), mesh.
 function wireRun(a, b, top, add, gate = false) {
   const F = WIRE_FENCE, L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 0.05) return;
   const dx = (b[0] - a[0]) / L, dy = (b[1] - a[1]) / L, wood = mat(FENCE.postColor);
@@ -552,7 +552,7 @@ function wireRun(a, b, top, add, gate = false) {
   const post = (u, z1, w = F.post) => { const c = at(u), h = w / 2; add(prism([[c[0] - h, c[1] - h], [c[0] + h, c[1] - h], [c[0] + h, c[1] + h], [c[0] - h, c[1] + h]], gz(u) - 0.3, z1, wood)); };
   const n = gate ? 1 : Math.max(1, Math.ceil(L / F.spacing - 0.05));
   if (gate) for (const u of [0.05, L - 0.05]) post(u, top, F.rail[1] * 1.5);
-  else for (let i = 0; i <= n; i++) post(L * i / n, top + 0.08);
+  else for (let i = 0; i <= n; i++) post(L * i / n, top - F.rail[1]);   // posts stop under the top rail: one flat rail, no post tops (William 2026-11-15)
   add(panel(at(0), at(L), top - (gate ? F.rail[0] : F.rail[1]), top, gate ? F.rail[1] : F.rail[0], wood));   // top rail
   for (let i = 0; i < n; i++) {   // each bay: bottom rail + mesh
     const u0 = L * i / n, u1 = L * (i + 1) / n, bot = Math.max(gz(u0), gz(u1), gz((u0 + u1) / 2)) + F.bottom;
@@ -2697,6 +2697,25 @@ function cardboardPalm(it) {
   }
   return g;
 }
+// Seagrape (Coccoloba uvifera), our existing ones along the south fence: a few grey multi-stems and a dense rounded
+// mass of big round leathery leaves (8" discs), a few turning red; height ~8' (assumed), spread = the plan circle.
+function seagrapeShrub(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 3, H = 8, stem = mat(0x8a8378);
+  for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2 + rnd(); g.add(taper([0, 0, -0.2], [Math.cos(a) * R * 0.45, Math.sin(a) * R * 0.45, H * (0.55 + rnd() * 0.2)], 0.14, 0.07, stem, 6)); }
+  const N = 420, disc = new THREE.CircleGeometry(0.34, 9), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = THREE.Vector3;
+  const green = new THREE.InstancedMesh(disc, mat(0x55783a, { side: THREE.DoubleSide }), N), red = new THREE.InstancedMesh(disc, mat(0xa04a30, { side: THREE.DoubleSide }), 40);
+  let ig = 0, ir = 0;
+  for (let k = 0; k < N + 40; k++) {   // leaves on and just inside an ellipsoid surface, faces turned roughly outward
+    const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, rr = 0.75 + rnd() * 0.25, s = Math.sqrt(1 - u * u);
+    const p = new V(Math.cos(a) * s * R * rr, Math.sin(a) * s * R * rr, H * 0.55 + u * H * 0.45 * rr);
+    if (p.z < 0.6) p.z = 0.6 + rnd() * 0.5;
+    E.set(rnd() * 1.2 - 0.6 + Math.PI / 2 * (1 - Math.abs(u)), rnd() * 0.8 - 0.4, a + Math.PI / 2); Q.setFromEuler(E);
+    M.compose(p, Q, new V(1, 1, 1));
+    if (k % 12 === 0 && ir < 40) red.setMatrixAt(ir++, M); else if (ig < N) green.setMatrixAt(ig++, M);
+  }
+  green.count = ig; red.count = ir; green.castShadow = red.castShadow = true; g.add(green, red);
+  return g;
+}
 // Plumeria (frangipani): short grey trunk forking into thick candelabra branches, rosettes of long leaves at the tips,
 // clusters of white / pale pink flowers; ~11' tall.
 function plumeriaTree(it) {
@@ -3210,12 +3229,12 @@ function buildLandscape(D, add, capped, cut) {
       continue;
     }
     if (it.kind === 'plant') {
-      const trop = /cabbage|cardboard|plumeria/i.exec(nm);   // the front island's palms + plumerias (William 2026-11-14)
+      const trop = /cabbage|cardboard|plumeria|seagrape/i.exec(nm);   // the front island's palms + plumerias (William 2026-11-14)
       if (trop) {
         const cab = items.filter(o => o.kind === 'plant' && /cabbage/i.test(o.name || ''));
         const cx = cab.reduce((t, o) => t + o.c[0], 0) / (cab.length || 1), cy = cab.reduce((t, o) => t + o.c[1], 0) / (cab.length || 1);
         const dx = it.c[0] - cx, dy = it.c[1] - cy, dl = Math.hypot(dx, dy) || 1;
-        const t = trop[0].toLowerCase(), g = t === 'cabbage' ? cabbagePalm(it, [dx / dl, dy / dl]) : t === 'cardboard' ? cardboardPalm(it) : plumeriaTree(it);
+        const t = trop[0].toLowerCase(), g = t === 'cabbage' ? cabbagePalm(it, [dx / dl, dy / dl]) : t === 'cardboard' ? cardboardPalm(it) : t === 'seagrape' ? seagrapeShrub(it) : plumeriaTree(it);
         g.position.set(it.c[0], it.c[1], gAt(it.c[0], it.c[1])); if (g.position.z < cut) add(g); continue;
       }
       if (/keep/i.test(nm) && it.sym === 'tree') continue;           // existing trees come from the survey
