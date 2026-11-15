@@ -2644,6 +2644,87 @@ function poincianaTree(t, S) {
   K.blobs(leaves[0], 0x5f8a3c); K.blobs(leaves[1], 0x6f9a44);
   return K.done();
 }
+// Front island (William 2026-11-14, "a tropical island"): cabbage palms rising out of the berm, cardboard palms round
+// their base, plumerias. Sizes typical of mature stock, assumed.
+function taper(a, b, r0, r1, material, seg = 8) {   // tapered round member a -> b
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), L = A.distanceTo(B);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, L, seg), material);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+  m.castShadow = true; return m;
+}
+const seeded = s => () => (s = (s * 16807) % 2147483647) / 2147483647;
+const seedOf = id => { let s = 7; for (const ch of String(id)) s = (s * 31 + ch.charCodeAt(0)) % 2147483647; return s || 11; };
+const frondGroup = (at, yaw, el) => { const f = new THREE.Group(); f.position.set(...at); f.rotation.order = 'ZYX'; f.rotation.z = yaw; f.rotation.y = -el; return f; };
+// Cabbage palm (Sabal palmetto): grey-tan trunk ~1' thick leaning a little away from the clump, a band of old leaf
+// boots under a round crown of costapalmate fans on 4-5' stalks. Clear trunk height from the name ("... (22' trunk)").
+function cabbagePalm(it, away) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id));
+  const H = +((/(\d+)'/.exec(it.name) || [0, 18])[1]), lean = 0.1 + rnd() * 0.06;
+  const top = [away[0] * H * lean, away[1] * H * lean, H], mid = [top[0] * 0.4, top[1] * 0.4, H * 0.5], bark = mat(0x8c8170);
+  g.add(taper([0, 0, -0.5], mid, 0.6, 0.52, bark)); g.add(taper(mid, top, 0.52, 0.48, bark));
+  g.add(taper([top[0] * 0.95, top[1] * 0.95, H - 1.8], [top[0], top[1], H + 0.4], 0.6, 0.72, mat(0x7a6a52, { flatShading: true }), 7));
+  const leaf = mat(0x5d7d3a, { flatShading: true }), stalk = mat(0x7d8a52), segs = [];
+  for (let j = 0; j < 17; j++) {   // one fan: 17 narrow leaf segments radiating from the stalk tip, the outer ones drooping more
+    const a = -1.25 + 2.5 * j / 16, len = 2.9 - Math.abs(a) * 0.45, b = new THREE.BoxGeometry(len, 0.17, 0.03);
+    b.translate(len / 2, 0, 0); b.applyMatrix4(new THREE.Matrix4().makeRotationY(0.3 + Math.abs(a) * 0.35)); b.applyMatrix4(new THREE.Matrix4().makeRotationZ(a));
+    segs.push(b);
+  }
+  const fanGeo = mergeGeometries(segs); segs.forEach(b => b.dispose());
+  for (const [el, n] of [[60, 5], [25, 8], [-10, 9], [-45, 7]]) for (let i = 0; i < n; i++) {
+    const f = frondGroup(top, i / n * Math.PI * 2 + el / 25 + rnd() * 0.3, THREE.MathUtils.degToRad(el + (rnd() - 0.5) * 14)), L = 3.2 + rnd();
+    f.add(taper([0, 0, 0], [L, 0, 0], 0.07, 0.05, stalk, 5));
+    const fan = new THREE.Mesh(fanGeo, leaf);
+    fan.position.x = L - 0.1; fan.rotation.x = (rnd() - 0.5) * 0.6;   // a little twist
+    fan.castShadow = true; f.add(fan); g.add(f);
+  }
+  return g;
+}
+// Cardboard palm (Zamia furfuracea): a squat caudex and ~16 stiff fronds arching out, broad leathery leaflet pairs;
+// about 3' tall, spread = the plan circle.
+function cardboardPalm(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 2.5;
+  g.add(taper([0, 0, -0.3], [0, 0, 0.7], 0.45, 0.35, mat(0x7b6b55, { flatShading: true }), 7));
+  const leaf = mat(0x56702f, { flatShading: true }), leaf2 = mat(0x4a6329, { flatShading: true }), rach = mat(0x6d7a45);
+  for (let i = 0; i < 16; i++) {
+    const L = R * (0.95 + rnd() * 0.25), f = frondGroup([0, 0, 0.6], i / 16 * Math.PI * 2 + rnd() * 0.3, THREE.MathUtils.degToRad(25 + rnd() * 35));
+    f.add(taper([0, 0, 0], [L, 0, 0], 0.05, 0.03, rach, 4));
+    for (let j = 0; j < 7; j++) for (const sd of [-1, 1]) {
+      const x = L * (0.3 + 0.1 * j), s = 0.42 - 0.03 * j, lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), j % 2 ? leaf : leaf2);
+      lf.scale.set(s * 0.55, s, 0.04); lf.position.set(x, sd * s * 0.85, 0.02); lf.rotation.z = sd * 0.5; lf.castShadow = true; f.add(lf);
+    }
+    g.add(f);
+  }
+  return g;
+}
+// Plumeria (frangipani): short grey trunk forking into thick candelabra branches, rosettes of long leaves at the tips,
+// clusters of white / pale pink flowers; ~11' tall.
+function plumeriaTree(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), V = THREE.Vector3;
+  const bark = mat(0x9b958a), leaf = mat(0x3f6a2e, { flatShading: true }), bloom = mat(0xfbe3e6, { flatShading: true }), tips = [];
+  g.add(taper([0, 0, -0.3], [0, 0, 3.2], 0.42, 0.36, bark));
+  const grow = (p, dir, len, r, depth) => {
+    const q = [p[0] + dir[0] * len, p[1] + dir[1] * len, p[2] + dir[2] * len];
+    g.add(taper(p, q, r, r * 0.8, bark, 7));
+    if (!depth) { tips.push(q); return; }
+    const n = 2 + (rnd() < 0.4 ? 1 : 0);
+    for (let k = 0; k < n; k++) {
+      const a = Math.atan2(dir[1], dir[0]) + (k - (n - 1) / 2) * 0.8 + (rnd() - 0.5) * 0.3, out = Math.hypot(dir[0], dir[1]) * 0.8 + 0.25;
+      const d = new V(Math.cos(a) * out, Math.sin(a) * out, 0.85).normalize();
+      grow(q, [d.x, d.y, d.z], len * 0.8, r * 0.75, depth - 1);
+    }
+  };
+  for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + rnd() * 0.5, d = new V(Math.cos(a) * 0.7, Math.sin(a) * 0.7, 0.75).normalize(); grow([0, 0, 3.2], [d.x, d.y, d.z], 3.4, 0.26, 2); }
+  for (const t of tips) {
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * Math.PI * 2 + rnd(), lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), leaf);
+      lf.scale.set(0.9, 0.3, 0.05); lf.position.set(t[0] + Math.cos(a) * 0.8, t[1] + Math.sin(a) * 0.8, t[2] + 0.35);
+      lf.rotation.order = 'ZYX'; lf.rotation.set(0, -0.5, a); lf.castShadow = true; g.add(lf);
+    }
+    for (let k = 0; k < 5; k++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.17, 0), bloom); b.position.set(t[0] + (rnd() - 0.5) * 0.5, t[1] + (rnd() - 0.5) * 0.5, t[2] + 0.7 + rnd() * 0.3); g.add(b); }
+  }
+  return g;
+}
 const TREE_BUILDERS = { bottlebrush: bottlebrushTree, oak: liveOakTree, pine: slashPineTree, poinciana: poincianaTree };
 
 // ---------------------------------------------------------------------------
@@ -2659,7 +2740,6 @@ const SITE_EDITS = {
   R92: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
-  L151: { skip: true },
   L89: { sym: 'powderpuff' },
   L52: { skip: true },   // the weeping bottlebrush: drawn in detail at its surveyed spot (survey trees, bottlebrushTree)
   L32: { sym: 'adirondack' }, L33: { sym: 'adirondack' },   // the 'stepping logs' by the fire pit are Adirondack chairs (William 2026-11-14)
@@ -2667,7 +2747,7 @@ const SITE_EDITS = {
   // the south path (step stones + the paver path round the wing planter + its joints) is rebuilt as PAVER_PATH
   L107: { skip: true }, L108: { skip: true }, L109: { skip: true }, L110: { skip: true }, L111: { skip: true },
   L112: { skip: true }, L113: { skip: true }, L114: { skip: true }, L115: { skip: true }, R19: { skip: true },
-  ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => ['R' + (20 + i), { skip: true }])),   // the powderpuff bush, modelled in detail (William 2026-11-14)   // the cardboard palm in the front addition planter (William 2026-11-13)
+  ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => ['R' + (20 + i), { skip: true }])),   // the powderpuff bush, modelled in detail (William 2026-11-14)
   L3: { pts: [[-50.82, 95.13], [55.55, 97.11]] },   // north fence on to the side-yard fence at x 55.55 (NE corner gap)
   R60: { pts: [[55.55, 91.82], [55.55, 97.11]] },
 };
@@ -3130,6 +3210,14 @@ function buildLandscape(D, add, capped, cut) {
       continue;
     }
     if (it.kind === 'plant') {
+      const trop = /cabbage|cardboard|plumeria/i.exec(nm);   // the front island's palms + plumerias (William 2026-11-14)
+      if (trop) {
+        const cab = items.filter(o => o.kind === 'plant' && /cabbage/i.test(o.name || ''));
+        const cx = cab.reduce((t, o) => t + o.c[0], 0) / (cab.length || 1), cy = cab.reduce((t, o) => t + o.c[1], 0) / (cab.length || 1);
+        const dx = it.c[0] - cx, dy = it.c[1] - cy, dl = Math.hypot(dx, dy) || 1;
+        const t = trop[0].toLowerCase(), g = t === 'cabbage' ? cabbagePalm(it, [dx / dl, dy / dl]) : t === 'cardboard' ? cardboardPalm(it) : plumeriaTree(it);
+        g.position.set(it.c[0], it.c[1], gAt(it.c[0], it.c[1])); if (g.position.z < cut) add(g); continue;
+      }
       if (/keep/i.test(nm) && it.sym === 'tree') continue;           // existing trees come from the survey
       const grp = new THREE.Group(); grp.position.set(it.c[0], it.c[1], gAt(it.c[0], it.c[1]));
       if (it.sym === 'crape') {   // crape myrtle: 5 smooth mottled trunks fanning out, vase canopy ~13' tall, pink bloom
