@@ -405,6 +405,8 @@ const ELEMENT_RULES = [
   { re: /wc|toilet/i,                           z0: 0, z1: 1.33, color: 'porcelain' },
   { re: /vanity/i,                              z0: 0, z1: 2.83, color: 'counter' },
   { re: /shed/i,                                z0: () => HEIGHTS.foundation, z1: () => HEIGHTS.shed, color: 'wall' },
+  { re: /^new planter$/i,                       z0: 0, z1: 0.08, color: 'mulch' },     // lanai planter LP1: mulch, the planting mass on it (William 2026-11-15: the paver shows)
+  { re: /^new planter planting$/i,              z0: 0, z1: 1.5, color: 'foliage' },
   { re: /planter/i,                             z0: 0, z1: 1.5, color: 'planter' },
   { re: /casework/i,                            solid: 'none' },
 ];
@@ -1266,6 +1268,7 @@ function build() {
     let z0 = HEIGHTS.foundation, z1 = s.floor_z ?? 0, m = mat('concrete');
     if (s.material === 'polished') { z0 = -0.2; z1 = 0.005; m = mat('polished'); }
     else if (s.material === 'terrazzo') { z1 = 0; m = TERRAZZO; }   // door landings: unpainted terrazzo edges   // front + carport door slabs: flush, continuous with the floor (William)
+    else if (/lanai planter/i.test(s.name)) z1 = 0.1;   // stepping paver in the lanai planter: just over its mulch
     else if (/step|paver/i.test(s.name)) { const c = centroid(clean(s.poly)); z1 = groundAt(c[0], c[1]) + 0.15; }
     add(prism(s.poly, z0, z1 + 0.002, m, { shadow: false }));
   }
@@ -1299,14 +1302,14 @@ function build() {
         if (a - u > 0.01) { const m = panel(toXY([u, vmid]), toXY([a, vmid]), 0, Math.min(top, cut), 0.02, screenMat); if (m) { m.castShadow = false; add(m); } }
         u = Math.max(u, b);
       }
-      for (const o of ops) {   // sliding screen door (N79, William 2026-11-15): panels in anodized frames, alternate tracks, a mid rail
+      for (const o of ops) {   // sliding screen door (N79, William 2026-11-15): panels in anodized frames, alternate tracks, no mid rail (William 2026-11-15)
         const zt = Math.min(o.head ?? top, top), k = o.leaves || 2, f = 1.5 / 12, pw = (o.to - o.from) / k;
         for (let i = 0; i < k; i++) {
           const u0 = o.from + i * pw - (i ? f / 2 : 0), u1 = o.from + (i + 1) * pw + (i < k - 1 ? f / 2 : 0), v = vmid + (i % 2 ? 0.04 : -0.04);
           const [c0, c1] = capped(0, zt); if (c1 <= c0) continue;
           const m = panel(toXY([u0 + f, v]), toXY([u1 - f, v]), c0, c1, 0.02, screenMat); if (m) { m.castShadow = false; add(m); }
           const bar = (p, q, za, zb) => { const [y0, y1] = capped(za, zb); if (y1 > y0) add(panel(toXY([p, v]), toXY([q, v]), y0, y1, 0.06, aluMat)); };
-          bar(u0, u0 + f, 0, zt); bar(u1 - f, u1, 0, zt); bar(u0, u1, 0, 2 * f); bar(u0, u1, zt - f, zt); bar(u0, u1, 3 - f / 2, 3 + f / 2);
+          bar(u0, u0 + f, 0, zt); bar(u1 - f, u1, 0, zt); bar(u0, u1, 0, 2 * f); bar(u0, u1, zt - f, zt);
         }
       }
       const [b0, b1] = capped(HEIGHTS.head, HEIGHTS.ceiling);
