@@ -3182,16 +3182,19 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (nm === 'Bridge') continue;   // the Bijou rope bridge, drawn with the tee-pees (bijouBridge)
       if (it.mat === 'deck') {
+        if (/backrest/i.test(nm) && upper) {   // bench backrests (William 2026-11-16): 2" boards, 16" over the seat
+          const seat = terrTop + LS.deckLow + LS.deckStep + LS.bench; box(P, seat, seat + 16 / 12, surf.deck, H); continue;
+        }
         const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
         let top = (onTerr ? terrTop : g0) + LS.deckLow;
         if (it === upper) top += LS.deckStep;
-        else if (nm === 'Built-in bench' && upper) top = terrTop + LS.deckLow + LS.deckStep + LS.bench;
+        else if (/^built-in bench/i.test(nm) && upper) top = terrTop + LS.deckLow + LS.deckStep + LS.bench;
         else if (/beam/i.test(nm)) top = g0 + LS.beam6x6;
         else if (/log/i.test(nm)) top = g0 + LS.log;
         else if (/box planter|trash/i.test(nm)) top = g0 + 2;
         const beam = !onTerr && /beam/i.test(nm);   // the 6x6 lies on the play surface: solid down to it (William 2026-11-14)
         box(P, beam ? g0 : top - 0.25, top, surf.deck, H);
-        if (onTerr && !/bench/i.test(nm)) add(drapeArea(P, H, LS.mulch, surf.bed));   // mulch under the floating decks, like the beds around
+        if (onTerr && !/bench|\(west\)/i.test(nm)) add(drapeArea(P, H, LS.mulch, surf.bed));   // mulch under the floating decks, like the beds around
         continue;
       }
       if (it.mat === 'planting') {
