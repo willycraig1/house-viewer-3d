@@ -3182,8 +3182,15 @@ function buildLandscape(D, add, capped, cut) {
       }
       if (nm === 'Bridge') continue;   // the Bijou rope bridge, drawn with the tee-pees (bijouBridge)
       if (it.mat === 'deck') {
-        if (/backrest/i.test(nm) && upper) {   // bench backrests (William 2026-11-16): 2" boards, 16" over the seat
-          const seat = terrTop + LS.deckLow + LS.deckStep + LS.bench; box(P, seat, seat + 16 / 12, surf.deck, H); continue;
+        if (/backrest/i.test(nm) && upper) {   // low bench backrests (William 2026-11-16): 6" deep, 12" over the seat, leaning back 10 deg
+          const seat = terrTop + LS.deckLow + LS.deckStep + LS.bench, m = prism(P, seat, seat + 1, surf.deck), [lx, ly] = it.lean || [0, 0];
+          if (m) { const pos = m.geometry.attributes.position;   // shear: the top slides out by `lean` (plan feet), the base stays on the seat
+            for (let i = 0; i < pos.count; i++) { const f = pos.getZ(i); pos.setXY(i, pos.getX(i) + lx * f, pos.getY(i) + ly * f); }
+            pos.needsUpdate = true; m.geometry.computeVertexNormals(); add(m); }
+          continue;
+        }
+        if (/^bench post/i.test(nm) && upper) {   // 3-1/2" posts from the upper deck up under the floating seat
+          const dk = terrTop + LS.deckLow + LS.deckStep; box(P, dk, dk + LS.bench - 0.25, surf.deck, H); continue;
         }
         const onTerr = /floating|overlapping|built-in bench/i.test(nm);   // the terrace decks float at the terrace level (William 2026-11-13)
         let top = (onTerr ? terrTop : g0) + LS.deckLow;
