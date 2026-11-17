@@ -2485,7 +2485,7 @@ function build() {
     if (cut < Infinity) {   // cutaway: trunk stub + dashed drip line, so the plan stays readable
       trunk.scale.y = Math.min(1, (cut - g.position.z) / trunkH); trunk.position.z = trunkH * trunk.scale.y / 2;
       const cR = S ? S.drip : t.canopy, cC = S?.center || [0, 0];   // detailed trees: drip line from TREE_SPECS (the bottlebrush's sits south)
-      const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(cC[0] + cR * Math.cos(a), cC[1] + cR * Math.sin(a)); }
+      const ring = []; for (let i = 0; i <= 64; i++) { const a = i / 32 * Math.PI; ring.push(Math.min(cC[0] + cR * Math.cos(a), S?.east ?? Infinity), cC[1] + cR * Math.sin(a)); }
       const dl = polylines([ring], 0.08, dripMat); dl.computeLineDistances(); g.add(dl);
       add(g);
       if (opts.labels) label(S ? S.label : t.name, t.at, 1, 'tree');
@@ -2508,7 +2508,7 @@ function build() {
 // shape from the photos. TREE_SPECS is keyed by the survey tree's name; EXTRA_TREES are trees off the survey (the
 // golf course pines just west of the lot). Heights, spreads, leans and canopy offsets are read off photos: estimates.
 const TREE_SPECS = {
-  'Tree 14" twin (BB: bottlebrush?)': { type: 'bottlebrush', label: 'Weeping bottlebrush', height: 28, drip: 21, center: [3, -8] },
+  'Tree 14" twin (BB: bottlebrush?)': { type: 'bottlebrush', label: 'Weeping bottlebrush', height: 28, drip: 21, center: [3, -8], east: 20.4 },   // east: no branch past local x 20.4 (plan x 19.5, clear of the living room's eave; William 2026-11-17)
   'Oak 32"': { type: 'oak', label: 'Live oak', height: 42, drip: 29 },
   'Pine 31"': { type: 'pine', label: 'Slash pine', height: 56, drip: 16, lean: [0.03, 0.02] },
   'Pine 26"': { type: 'pine', label: 'Slash pine', height: 57, drip: 17, lean: [-0.04, 0.03] },
@@ -2587,6 +2587,7 @@ function bottlebrushTree(t, S) {
   const E = [C[0] * 0.5 + 0.5, C[1] * 1.5, 13], big = [V(-0.2, -0.25, 0), V(-0.4, -1.2, 4.5), V(E[0] * 0.25, E[1] * 0.35, 8.5), V(E[0] * 0.6, E[1] * 0.7, 11.5), V(...E)];
   path(big, dia / 2, 0.22);
   const dome = domeTargets(K, 120, C, R, 8, 17), targets = dome.map(q => [q, 7]);
+  if (S.east) for (const q of dome) if (q.x > C[0]) q.x = C[0] + (q.x - C[0]) * Math.min(1, (S.east - C[0]) / R);   // squeeze the east side in
   for (let k = 0; k < 16; k++) {   // tufts up the leader
     const z = 15 + rnd() * (H - 16), a = rnd() * Math.PI * 2, d = 1.5 + rnd() * 4 * (1 - (z - 15) / (H - 15));
     targets.push([V(0.4 + Math.cos(a) * d, 0.3 + Math.sin(a) * d, z), 5]);
@@ -2596,6 +2597,7 @@ function bottlebrushTree(t, S) {
   for (const q of dome) sectors[Math.floor(((Math.atan2(q.y - C[1], q.x - C[0]) + Math.PI) / (2 * Math.PI)) * 9) % 9].push(q);
   for (const sec of sectors) if (sec.length) {
     const m = sec.reduce((t, q) => t.add(q), V(0, 0, 0)).multiplyScalar(1 / sec.length), far = V(C[0] + (m.x - C[0]) * 1.25, C[1] + (m.y - C[1]) * 1.25, m.z);
+    if (S.east) far.x = Math.min(far.x, S.east - 0.5);
     let best = nodes0[0]; for (const nd of nodes0) if (nd[0].z > 5 && nd[0].z < far.z && nd[0].distanceTo(far) < best[0].distanceTo(far)) best = nd;
     path([best[0], best[0].clone().lerp(far, 0.5).add(V(0, 0, 1.2)), far], Math.min(best[1] * 0.75, 0.2), 0.06);
   }
@@ -2884,14 +2886,10 @@ const TREE_BUILDERS = { bottlebrush: bottlebrushTree, oak: liveOakTree, pine: sl
 // Site plan (house.json `landscape`: the floor-plan project's revised site plan, plan feet). Flat surfaces are draped on
 // the survey ground; raised planters, decks, fences, the Bijou tee-pees and plants are built up from it. Heights are
 // assumptions (LANDSCAPE); see docs/DECISIONS.md.
-// Temporary site plan edits (William 2026-11-13), until the floor-plan project's site_rev.json carries them
-// (docs/EXPORT_REQUESTS.md 28): the lanai planter's north return wall is gone (its west leg stops on the landing's edge
-// and the bed runs to the landing, which now holds the soil); the 6'-8" terrace cross joints give way to the 3' paver
-// joints (TERRACE_PAVERS).
+// Site plan display edits. The lanai planter (R92-R94) and the NE corner fence (L3, R60) overrides are gone
+// (2026-11-17): site_rev.json carries them (pass 24 / 25), and the overrides had been hiding every later edit there.
+// Never override a site_rev item's geometry here for long: ask for it in the export instead.
 const SITE_EDITS = {
-  R94: { poly: [[16.91, 48.18], [17.55, 47.98], [9.83, 23.67], [18.05, 21.06], [19.16, 24.57], [17.85, 20.43], [8.99, 23.24]] },
-  R92: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
-  R93: { poly: [[19.16, 24.57], [18.05, 21.06], [9.83, 23.67], [17.55, 47.98], [19.77, 47.27], [13.16, 26.47]] },
   R96: { skip: true }, R97: { skip: true }, R98: { skip: true },
   L89: { sym: 'powderpuff' },
   L52: { skip: true },   // the weeping bottlebrush: drawn in detail at its surveyed spot (survey trees, bottlebrushTree)
@@ -2900,8 +2898,6 @@ const SITE_EDITS = {
   L107: { skip: true }, L108: { skip: true }, L109: { skip: true }, L110: { skip: true }, L111: { skip: true },
   L112: { skip: true }, L113: { skip: true }, L114: { skip: true }, L115: { skip: true }, R19: { skip: true },
   ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => ['R' + (20 + i), { skip: true }])),   // the powderpuff bush, modelled in detail (William 2026-11-14)
-  L3: { pts: [[-50.82, 95.13], [55.55, 97.11]] },   // north fence on to the side-yard fence at x 55.55 (NE corner gap)
-  R60: { pts: [[55.55, 91.82], [55.55, 97.11]] },
 };
 // Temporary opening edits (export request 29): none left. D37 / S4 heads now come from the export (6'-7", the lanai
 // beam bottom, William's tape 2026-11-14); the old 7'-1" override ran their frames past the wall top into the joists.
@@ -2914,7 +2910,7 @@ const SITE_ADDS = [{ id: 'X-CM1', kind: 'plant', name: 'Crape myrtle', sym: 'cra
 const PAVER_PATH = { size: 2, margin: 4 / 12, legs: [[[34.7, 3.4], [73.6, 3.4], [73.6, 36.14]], [[73.6, 3.4], [82.4, 3.4]]] };
 // Door 07 (N34) slab (William 2026-11-14): replaces the survey's irregular studio patio: a rectangle square to the door,
 // as wide as the old one (6'-2"), out to the lanai planter wall's west face, top at the studio floor (-7 1/2").
-const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.99, 23.24], top: -7.5 / 12 };
+const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.03, 23.54], top: -7.5 / 12 };   // `to`: the lanai planter wall's west face (moved 1' west 2026-11-17)
 // The front yard (William 2026-11-14): groundcover instead of lawn from the house to the street edge, lot line to lot
 // line (the drive, walks, beds and planters sit on it); the street a clean strip from the surveyed edge of pavement.
 const FRONT_COVER = { color: 0x4d7a3b, poly: [[56, -2.4], [99.6, -1.68], [117.0, -1.3], [113.6, 29.5], [113.0, 60], [112.6, 85.2], [113.2, 98.3], [98.58, 98.31], [56, 97.3]] };
