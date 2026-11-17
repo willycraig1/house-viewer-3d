@@ -2700,15 +2700,16 @@ function cabbagePalm(it, away) {
 // Cardboard palm (Zamia furfuracea): a squat caudex and ~16 stiff fronds arching out, broad leathery leaflet pairs;
 // about 3' tall, spread = the plan circle.
 function cardboardPalm(it) {
-  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 2.5;
-  g.add(taper([0, 0, -0.3], [0, 0, 0.7], 0.45, 0.35, mat(0x7b6b55, { flatShading: true }), 7));
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 2.5, sc = Math.max(1, R / 2.5);
+  g.add(taper([0, 0, -0.3], [0, 0, 0.6 + 0.3 * sc], 0.45 * Math.sqrt(sc), 0.35 * Math.sqrt(sc), mat(0x7b6b55, { flatShading: true }), 7));
   const leaf = mat(0x56702f, { flatShading: true }), leaf2 = mat(0x4a6329, { flatShading: true }), rach = mat(0x6d7a45);
-  for (let i = 0; i < 16; i++) {
-    const L = R * (0.95 + rnd() * 0.25), f = frondGroup([0, 0, 0.6], i / 16 * Math.PI * 2 + rnd() * 0.3, THREE.MathUtils.degToRad(25 + rnd() * 35));
-    f.add(taper([0, 0, 0], [L, 0, 0], 0.05, 0.03, rach, 4));
-    for (let j = 0; j < 7; j++) for (const sd of [-1, 1]) {
-      const x = L * (0.3 + 0.1 * j), s = 0.42 - 0.03 * j, lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), j % 2 ? leaf : leaf2);
-      lf.scale.set(s * 0.55, s, 0.04); lf.position.set(x, sd * s * 0.85, 0.02); lf.rotation.z = sd * 0.5; lf.castShadow = true; f.add(lf);
+  const NF = Math.round(16 + 5 * (sc - 1)), NJ = Math.round(7 + 3 * (sc - 1)), z = 0.5 + 0.3 * sc;
+  for (let i = 0; i < NF; i++) {   // big plants: lower, wider arch (about 4' tall at a 12' spread)
+    const L = R * (0.95 + rnd() * 0.25), f = frondGroup([0, 0, z], i / NF * Math.PI * 2 + rnd() * 0.3, THREE.MathUtils.degToRad((25 + rnd() * 35) / Math.sqrt(sc)));
+    f.add(taper([0, 0, 0], [L, 0, 0], 0.05 * sc, 0.03 * sc, rach, 4));
+    for (let j = 0; j < NJ; j++) for (const sd of [-1, 1]) {
+      const x = L * (0.3 + 0.7 * j / NJ), s = (0.42 - 0.21 * j / NJ) * Math.sqrt(sc), lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), j % 2 ? leaf : leaf2);
+      lf.scale.set(s * 0.55, s, 0.04); lf.position.set(x, sd * s * 0.85, 0.02 - x * x * 0.012 / sc); lf.rotation.z = sd * 0.5; lf.castShadow = true; f.add(lf);
     }
     g.add(f);
   }
@@ -2733,31 +2734,100 @@ function seagrapeShrub(it) {
   green.count = ig; red.count = ir; green.castShadow = red.castShadow = true; g.add(green, red);
   return g;
 }
-// Plumeria (frangipani): short grey trunk forking into thick candelabra branches, rosettes of long leaves at the tips,
-// clusters of white / pale pink flowers; ~11' tall.
+// Plumeria (frangipani), William 2026-11-16: a low DOME of leaves, not a ring on stilts. Short grey trunk forking low
+// into many thick branches that end evenly over a dome; each tip a rosette of long leaves turned outward, white / pale
+// pink flower clusters on the upper tips. Canopy radius = the plan circle, ~8' tall.
 function plumeriaTree(it) {
-  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), V = THREE.Vector3;
-  const bark = mat(0x9b958a), leaf = mat(0x3f6a2e, { flatShading: true }), bloom = mat(0xfbe3e6, { flatShading: true }), tips = [];
-  g.add(taper([0, 0, -0.3], [0, 0, 3.2], 0.42, 0.36, bark));
-  const grow = (p, dir, len, r, depth) => {
-    const q = [p[0] + dir[0] * len, p[1] + dir[1] * len, p[2] + dir[2] * len];
-    g.add(taper(p, q, r, r * 0.8, bark, 7));
-    if (!depth) { tips.push(q); return; }
-    const n = 2 + (rnd() < 0.4 ? 1 : 0);
-    for (let k = 0; k < n; k++) {
-      const a = Math.atan2(dir[1], dir[0]) + (k - (n - 1) / 2) * 0.8 + (rnd() - 0.5) * 0.3, out = Math.hypot(dir[0], dir[1]) * 0.8 + 0.25;
-      const d = new V(Math.cos(a) * out, Math.sin(a) * out, 0.85).normalize();
-      grow(q, [d.x, d.y, d.z], len * 0.8, r * 0.75, depth - 1);
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 2.3, H = 8, z0 = 2.2, V = THREE.Vector3;
+  const bark = mat(0x9b958a), leaf = mat(0x3f6a2e, { flatShading: true }), leaf2 = mat(0x4d7a36, { flatShading: true }), bloom = mat(0xfbe3e6, { flatShading: true });
+  g.add(taper([0, 0, -0.3], [0, 0, z0], 0.38, 0.32, bark));
+  const N = 34, cz = z0 + 0.6, hz = H - cz - 0.6;
+  for (let k = 0; k < N; k++) {   // tips spread evenly over the dome (golden-angle spiral), from the rim up to the crown
+    const t = (k + 0.5) / N, el = Math.asin(0.15 + 0.85 * t), az = k * 2.39996 + rnd() * 0.3;
+    const tip = [Math.cos(az) * Math.cos(el) * R * 0.78, Math.sin(az) * Math.cos(el) * R * 0.78, cz + Math.sin(el) * hz * 0.82];
+    const mid = [tip[0] * 0.45, tip[1] * 0.45, z0 + (tip[2] - z0) * 0.45];
+    g.add(taper([0, 0, z0 - 0.1], mid, 0.17, 0.12, bark, 6)); g.add(taper(mid, tip, 0.12, 0.08, bark, 6));
+    const out = new V(tip[0], tip[1], (tip[2] - cz) * 0.9).normalize();
+    for (let j = 0; j < 7; j++) {   // leaves fanned round the tip, splayed outward along the dome
+      const a = j / 7 * Math.PI * 2 + rnd(), lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), j % 2 ? leaf : leaf2);
+      const side = new V(-out.y, out.x, 0).normalize(), up = new V().crossVectors(out, side);
+      const dir = out.clone().multiplyScalar(0.55).add(side.clone().multiplyScalar(Math.cos(a))).add(up.clone().multiplyScalar(Math.sin(a))).normalize();
+      lf.scale.set(0.62, 0.17, 0.04);
+      lf.position.set(tip[0] + dir.x * 0.55, tip[1] + dir.y * 0.55, tip[2] + dir.z * 0.55);
+      lf.quaternion.setFromUnitVectors(new V(1, 0, 0), dir); lf.castShadow = true; g.add(lf);
     }
-  };
-  for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + rnd() * 0.5, d = new V(Math.cos(a) * 0.7, Math.sin(a) * 0.7, 0.75).normalize(); grow([0, 0, 3.2], [d.x, d.y, d.z], 3.4, 0.26, 2); }
-  for (const t of tips) {
-    for (let k = 0; k < 8; k++) {
-      const a = k / 8 * Math.PI * 2 + rnd(), lf = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), leaf);
-      lf.scale.set(0.9, 0.3, 0.05); lf.position.set(t[0] + Math.cos(a) * 0.8, t[1] + Math.sin(a) * 0.8, t[2] + 0.35);
-      lf.rotation.order = 'ZYX'; lf.rotation.set(0, -0.5, a); lf.castShadow = true; g.add(lf);
+    if (tip[2] > cz + hz * 0.35 && rnd() < 0.75) for (let j = 0; j < 4; j++) {
+      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 0), bloom);
+      b.position.set(tip[0] + out.x * 0.35 + (rnd() - 0.5) * 0.35, tip[1] + out.y * 0.35 + (rnd() - 0.5) * 0.35, tip[2] + out.z * 0.35 + 0.1); g.add(b);
     }
-    for (let k = 0; k < 5; k++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.17, 0), bloom); b.position.set(t[0] + (rnd() - 0.5) * 0.5, t[1] + (rnd() - 0.5) * 0.5, t[2] + 0.7 + rnd() * 0.3); g.add(b); }
+  }
+  return g;
+}
+// Loquat (Eriobotrya japonica), #30 (William 2026-11-16: back, larger, with more detail): short trunk splitting into 4
+// leaning limbs, a dense rounded crown of big stiff leaves (~10" x 3", dark glossy green above, rusty-felted below)
+// in whorls at the twig ends, clusters of orange fruit. Canopy radius = the plan circle, ~14' tall.
+function loquatTree(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 5, H = 14, V = THREE.Vector3;
+  const bark = mat(0x6e6252), M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new V(0.42, 0.13, 0.03);
+  g.add(taper([0, 0, -0.4], [0, 0, 3.2], 0.42, 0.34, bark));
+  const tips = [];
+  for (let k = 0; k < 4; k++) {   // main limbs, then two twigs each
+    const a = k / 4 * Math.PI * 2 + rnd() * 0.6, p1 = [Math.cos(a) * R * 0.35, Math.sin(a) * R * 0.35, 3.2 + H * 0.3];
+    g.add(taper([0, 0, 3.0], p1, 0.24, 0.17, bark, 7));
+    for (let j = 0; j < 3; j++) {
+      const b = a + (j - 1) * 0.7 + (rnd() - 0.5) * 0.3, p2 = [Math.cos(b) * R * 0.62, Math.sin(b) * R * 0.62, p1[2] + 2 + rnd() * 2.5];
+      g.add(taper(p1, p2, 0.15, 0.09, bark, 6)); tips.push(p2);
+    }
+  }
+  const cz = H * 0.6, rz = H * 0.42;
+  const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat(0x2f4d24, { flatShading: true }));   // inner mass, so it reads dense
+  crown.scale.set(R * 0.8, R * 0.8, rz * 0.8); crown.position.z = cz; crown.castShadow = true; g.add(crown);
+  const NL = 1100, top = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), mat(0x2e5a26, { flatShading: true }), NL);
+  const under = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), mat(0x8a6a45, { flatShading: true }), 220);
+  let nt = 0, nu = 0;
+  for (let k = 0; k < NL + 220; k++) {   // leaves in whorls on and just inside the crown surface, tips pointing outward
+    const u = rnd() * 2 - 1, az = rnd() * Math.PI * 2, rr = 0.85 + rnd() * 0.17, sq = Math.sqrt(1 - u * u);
+    const p = new V(Math.cos(az) * sq * R * rr, Math.sin(az) * sq * R * rr, cz + u * rz * rr);
+    if (p.z < 4.5) continue;
+    const dir = new V(p.x, p.y, (p.z - cz) * 0.6 + 0.6).normalize().add(new V(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.7)).normalize();
+    Q.setFromUnitVectors(new V(1, 0, 0), dir); M4.compose(p.clone().add(dir.clone().multiplyScalar(0.35)), Q, S);
+    if (k % 6 === 0 && nu < 220) under.setMatrixAt(nu++, M4); else if (nt < NL) top.setMatrixAt(nt++, M4);
+  }
+  top.count = nt; under.count = nu; top.castShadow = true; g.add(top, under);
+  const fruit = mat(0xe8902a);
+  for (let k = 0; k < 14; k++) {   // fruit clusters hanging at the crown's edge
+    const az = rnd() * Math.PI * 2, z = cz - rz * 0.1 + rnd() * rz * 0.6, rr = R * 0.92;
+    for (let j = 0; j < 5; j++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), fruit);
+      f.position.set(Math.cos(az) * rr + (rnd() - 0.5) * 0.4, Math.sin(az) * rr + (rnd() - 0.5) * 0.4, z - rnd() * 0.4); g.add(f); }
+  }
+  return g;
+}
+// Agave (the owners' agaves): a stiff rosette of ~28 thick grey-blue pointed leaves, the outer ones lying out, the inner
+// ones upright; spread = the plan circle, ~3' tall.
+function agavePlant(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 1.75, lf = mat(0x7d9a90, { flatShading: true });
+  for (let k = 0; k < 28; k++) {
+    const t = k / 28, az = k * 2.39996, el = THREE.MathUtils.degToRad(12 + 68 * t * t + rnd() * 8), L = R * (1.15 - 0.35 * t);
+    const d = [Math.cos(az) * Math.cos(el), Math.sin(az) * Math.cos(el), Math.sin(el)];
+    const m = [d[0] * L * 0.5, d[1] * L * 0.5, 0.15 + d[2] * L * 0.5 + 0.05], e = [d[0] * L, d[1] * L, 0.15 + d[2] * L - 0.05 * (1 - t)];
+    g.add(taper([0, 0, 0.15], m, 0.2, 0.16, lf, 4)); g.add(taper(m, e, 0.16, 0.01, lf, 4));
+  }
+  return g;
+}
+// Dwarf palmetto (Sabal minor): no trunk, ~9 stiff blue-green fans on 2-3' stalks rising from the ground; spread = the
+// plan circle, ~4' tall.
+function dwarfPalmetto(it) {
+  const g = new THREE.Group(), rnd = seeded(seedOf(it.id)), R = it.r || 2.25, leaf = mat(0x5b7a52, { flatShading: true }), stalk = mat(0x7d8a52), segs = [];
+  for (let j = 0; j < 15; j++) {
+    const a = -1.1 + 2.2 * j / 14, len = 1.5 - Math.abs(a) * 0.25, b = new THREE.BoxGeometry(len, 0.13, 0.03);
+    b.translate(len / 2, 0, 0); b.applyMatrix4(new THREE.Matrix4().makeRotationY(0.15 + Math.abs(a) * 0.15)); b.applyMatrix4(new THREE.Matrix4().makeRotationZ(a)); segs.push(b);
+  }
+  const fanGeo = mergeGeometries(segs); segs.forEach(b => b.dispose());
+  for (let i = 0; i < 9; i++) {
+    const f = frondGroup([0, 0, 0], i / 9 * Math.PI * 2 + rnd() * 0.5, THREE.MathUtils.degToRad(48 + rnd() * 25)), L = R * (0.75 + rnd() * 0.3);
+    f.add(taper([0, 0, 0], [L, 0, 0], 0.05, 0.035, stalk, 5));
+    const fan = new THREE.Mesh(fanGeo, leaf); fan.position.x = L - 0.05; fan.rotation.y = 0.6; fan.rotation.x = (rnd() - 0.5) * 0.5; fan.castShadow = true;
+    f.add(fan); g.add(f);
   }
   return g;
 }
@@ -3218,6 +3288,19 @@ function buildLandscape(D, add, capped, cut) {
         if (onTerr && !/bench|\(west\)/i.test(nm)) add(drapeArea(P, H, LS.mulch, surf.bed));   // mulch under the floating decks, like the beds around
         continue;
       }
+      const gcov = /^(perennial peanut border|jasmine groundcover)$/i.exec(nm);   // the front island's groundcovers on the berm (William 2026-11-16)
+      if (gcov) {
+        const peanut = /peanut/i.test(nm), lift = 0.35;
+        add(drapeArea(P, H, lift, mat(peanut ? 0x6a9a3c : 0x3f6634, { flatShading: true })));
+        const dot = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(peanut ? 0.08 : 0.035, 0), mat(peanut ? 0xf2c818 : 0xd9dcc0), 6000);
+        const Q = clean(P), xs = Q.map(p => p[0]), ys = Q.map(p => p[1]), M4 = new THREE.Matrix4(); let n = 0, sd = seedOf(it.id); const r = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+        for (let x = Math.min(...xs); x < Math.max(...xs); x += peanut ? 0.6 : 0.4) for (let y = Math.min(...ys); y < Math.max(...ys); y += peanut ? 0.6 : 0.4) {
+          const q = [x + r() * 0.5, y + r() * 0.5];   // flowers (peanut) / cream leaf variegation (jasmine) sprinkled on top
+          if (n >= 6000 || !inside(q, Q) || (H || []).some(h => inside(q, h))) continue;
+          M4.makeTranslation(q[0], q[1], gAt(q[0], q[1]) + lift + 0.04); dot.setMatrixAt(n++, M4);
+        }
+        dot.count = n; add(dot); continue;
+      }
       if (it.mat === 'planting') {
         const base = it.of && raised.has(it.of) ? soilTop(by[it.of]) : g0 + LS.mulch;
         box(P, base, base + LS.foliage, surf.planting, H); continue;
@@ -3270,12 +3353,12 @@ function buildLandscape(D, add, capped, cut) {
       continue;
     }
     if (it.kind === 'plant') {
-      const trop = /cabbage|cardboard|plumeria|seagrape/i.exec(nm);   // the front island's palms + plumerias (William 2026-11-14)
+      const trop = /cabbage|cardboard|plumeria|seagrape|agave|palmetto|loquat/i.exec(nm);   // the front island's plants (William 2026-11-14 / 16)
       if (trop) {
         const cab = items.filter(o => o.kind === 'plant' && /cabbage/i.test(o.name || ''));
         const cx = cab.reduce((t, o) => t + o.c[0], 0) / (cab.length || 1), cy = cab.reduce((t, o) => t + o.c[1], 0) / (cab.length || 1);
         const dx = it.c[0] - cx, dy = it.c[1] - cy, dl = Math.hypot(dx, dy) || 1;
-        const t = trop[0].toLowerCase(), g = t === 'cabbage' ? cabbagePalm(it, [dx / dl, dy / dl]) : t === 'cardboard' ? cardboardPalm(it) : t === 'seagrape' ? seagrapeShrub(it) : plumeriaTree(it);
+        const t = trop[0].toLowerCase(), g = t === 'cabbage' ? cabbagePalm(it, [dx / dl, dy / dl]) : t === 'cardboard' ? cardboardPalm(it) : t === 'seagrape' ? seagrapeShrub(it) : t === 'agave' ? agavePlant(it) : t === 'palmetto' ? dwarfPalmetto(it) : t === 'loquat' ? loquatTree(it) : plumeriaTree(it);
         g.position.set(it.c[0], it.c[1], gAt(it.c[0], it.c[1])); if (g.position.z < cut) add(g); continue;
       }
       if (/keep/i.test(nm) && it.sym === 'tree') continue;           // existing trees come from the survey
