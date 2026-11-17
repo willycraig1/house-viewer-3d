@@ -3288,9 +3288,10 @@ function buildLandscape(D, add, capped, cut) {
       if (/planter wall$/i.test(nm)) { box(P, minG(P) - 0.4, wallTop(it, g0), mat('wall'), H); continue; }   // into the ground all round (no floating)
       if (TERRACE.test(nm) || it.poly === playP) continue;   // drawn above (terrace strips, play surface)
       if (nm === 'Play zone curb') { box(P, Math.min(minG(P), LS.curbTop) - 0.4, LS.curbTop, mat('concrete'), H); continue; }
-      if (it.sym === 'adirondack') {   // faces the fire pit
+      if (it.sym === 'adirondack') {   // faces the fire pit, or its own `toward` point; `on: 'upper deck'` sets it on that deck
         const pit = items.find(x => x.kind === 'circle' && /fire pit/i.test(x.name || '') && !x.mat) || items.find(x => /fire pit/i.test(x.name || ''));
-        add(adirondack(P, pit ? pit.c : centroid(clean(P)), gC(P))); continue;
+        const z0 = it.on === 'upper deck' ? terrTop + LS.deckLow + LS.deckStep : gC(P);
+        add(adirondack(P, it.toward || (pit ? pit.c : centroid(clean(P))), z0)); continue;
       }
       if (/^cornhole board/i.test(nm)) {   // 2' x 4' board sloping from 3" at the front to 12" at the back, facing the other board (William 2026-11-16)
         const Q = clean(P), oth = items.find(x => x !== it && /^cornhole board/i.test(x.name || '')), c = centroid(Q);
