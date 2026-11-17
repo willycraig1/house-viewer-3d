@@ -832,10 +832,47 @@ function clipTriZ(t, zc) {   // the part of a triangle below z = zc, as triangle
   const r = []; for (let i = 1; i + 1 < o.length; i++) r.push([o[0], o[i], o[i + 1]]); return r;
 }
 // One mesh per material: matOf(item, normal [x,y,z], part) -> material or null (leave the face out).
-function ifcMeshes(items, matOf, { cut = Infinity, dz = () => 0, smooth = false, shadow = true } = {}) {
+// The closed loops where a closed mesh crosses the level z (segments chained end to end), in plan [x, y].
+function sectionLoops(parts, z, off = 0) {
+  const seg = [], key = q => q[0].toFixed(4) + ',' + q[1].toFixed(4);
+  for (const p of parts) {
+    const V = p.v, F = p.f;
+    for (let i = 0; i + 2 < F.length; i += 3) {
+      const t = [F[i], F[i + 1], F[i + 2]].map(k => [V[3 * k], V[3 * k + 1], V[3 * k + 2] + off]), hit = [];
+      for (let j = 0; j < 3; j++) { const a = t[j], b = t[(j + 1) % 3];
+        if ((a[2] - z) * (b[2] - z) < 0) { const k = (z - a[2]) / (b[2] - a[2]); hit.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]); } }
+      if (hit.length === 2 && key(hit[0]) !== key(hit[1])) seg.push(hit);
+    }
+  }
+  const at = new Map(); for (const sg of seg) for (const q of sg) { const k = key(q); if (!at.has(k)) at.set(k, []); at.get(k).push(sg); }
+  const used = new Set(), loops = [];
+  for (const s0 of seg) {
+    if (used.has(s0)) continue; used.add(s0); const L = [s0[0], s0[1]];
+    for (;;) { const nx = (at.get(key(L[L.length - 1])) || []).find(sg => !used.has(sg)); if (!nx) break; used.add(nx);
+      L.push(key(nx[0]) === key(L[L.length - 1]) ? nx[1] : nx[0]); }
+    if (L.length > 3 && key(L[0]) === key(L[L.length - 1])) loops.push(L.slice(0, -1));
+  }
+  return loops;
+}
+// A cap over the loops at level z (a loop inside another is a hole), as flat triangles.
+function capTris(loops, z) {
+  const A = l => l.reduce((s, q, i) => { const r = l[(i + 1) % l.length]; return s + q[0] * r[1] - r[0] * q[1]; }, 0) / 2;
+  const outs = loops.filter(l => !loops.some(o => o !== l && Math.abs(A(o)) > Math.abs(A(l)) && inside(l[0], o)));
+  const out = [];
+  for (const o of outs) {
+    const holes = loops.filter(l => l !== o && !outs.includes(l) && inside(l[0], o));
+    const V2 = v => new THREE.Vector2(v[0], v[1]), c = (A(o) < 0 ? [...o].reverse() : o).map(V2), hs = holes.map(h => (A(h) > 0 ? [...h].reverse() : h).map(V2));
+    const all = [...c, ...hs.flat()];
+    for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(c, hs)) out.push([[all[i].x, all[i].y, z], [all[j].x, all[j].y, z], [all[k].x, all[k].y, z]]);
+  }
+  return out;
+}
+function ifcMeshes(items, matOf, { cut = Infinity, dz = () => 0, smooth = false, shadow = true, capOf = null } = {}) {
   const buckets = new Map(), g = new THREE.Group();
   for (const it of items) {
-    const off = dz(it);
+    const off = dz(it), cm = cut < Infinity && capOf ? capOf(it) : null;
+    if (cm) { let a = buckets.get(cm); if (!a) buckets.set(cm, a = []);   // cut face on top of a cut solid (William 2026-11-17: the shed vanished in plan cutaways)
+      for (const t of capTris(sectionLoops(it.parts, cut, off), cut + 0.005)) for (const q of t) a.push(q[0], q[1], q[2]); }
     for (const p of it.parts) {
       const V = p.v, F = p.f;
       for (let i = 0; i + 2 < F.length; i += 3) {
@@ -2385,7 +2422,17 @@ function build() {
       const c = mid(shed), dz = groundAt(c[0], c[1]) - HEIGHTS.grade;
       add(ifcMeshes(shed, (it, n, p) => it.ifc === 'IfcWindow' ? (p.glass ? glassMat : mat('trim'))
         : it.ifc === 'IfcDoor' ? mat('door') : it.ifc === 'IfcRoof' ? (n[2] > 0.3 ? mat('shingle') : mat('trim')) : Math.abs(n[2]) < 0.3 ? SHED_SIDING : mat('trim'),
-        { cut, dz: () => dz })).traverse(o => { if (o.isMesh && o.material === SHED_SIDING) verticalUV(o); });
+        { cut, dz: () => dz, capOf: it => it.ifc === 'IfcWall' ? mat('cut') : null })).traverse(o => { if (o.isMesh && o.material === SHED_SIDING) verticalUV(o); });
+      { // the shed's plywood floor on its skids (the IFC has none): the walls' outline, from the gravel up to the floor
+        const walls = shed.filter(it => it.ifc === 'IfcWall'), z0 = Math.min(...walls.map(zmin)), pts = sectionLoops(walls.flatMap(it => it.parts), z0 + 1).flat();
+        if (pts.length > 2) {   // convex hull of the wall cuts
+          const H = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]), cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+          const lo = [], up = []; for (const q of H) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+          for (const q of H.reverse()) { while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+          const [f0, f1] = [z0 + dz, z0 + dz + 0.5].map(z => Math.min(z, cut));
+          if (f1 > f0) add(prism([...lo.slice(0, -1), ...up.slice(0, -1)], f0, f1, mat(0xb59a72)));
+        }
+      }
     }
     // the urn on its planter's soil (raised planter: wall top less 0.15, as buildLandscape)
     if (opts.landscape) for (const u of extras('planter').filter(it => /urn/i.test(it.type))) {
@@ -3306,6 +3353,8 @@ function buildLandscape(D, add, capped, cut) {
         box(P, base, base + LS.foliage, surf.planting, H); continue;
       }
       if (it.mat === 'bed' && raised.has(it.id)) { box(P, minG(P) - 0.4, soilTop(it), surf.bed, H); continue; }
+      if (/^trash bin$/i.test(nm)) {   // 96-gal cart: body to 3'-7", lid on top (William 2026-11-17: bins on their own pad)
+        const g0 = gC(clean(P)); box(P, g0, g0 + 3.45, mat(0x3c4a3e)); box(P, g0 + 3.45, g0 + 3.6, mat(0x2e3a30)); continue; }
       if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
       const lift = it.mat === 'concrete' ? LS.slab : it.mat === 'bed' ? LS.mulch : it.mat === 'sod' ? LS.flat - 0.02 : LS.flat;
       const onBerm = (REGRADE.berms || []).some(b => { const bi = items.find(x => x.name === b.name && x.poly); return bi && inside(centroid(clean(P)), bi.poly); });
