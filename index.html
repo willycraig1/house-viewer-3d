@@ -2894,10 +2894,7 @@ const SITE_EDITS = {
   L89: { sym: 'powderpuff' },
   L52: { skip: true },   // the weeping bottlebrush: drawn in detail at its surveyed spot (survey trees, bottlebrushTree)
   L139: { mat: 'pebbles' },   // the bermed island in shell gravel (William 2026-11-14)
-  // the south path (step stones + the paver path round the wing planter + its joints) is rebuilt as PAVER_PATH
-  L107: { skip: true }, L108: { skip: true }, L109: { skip: true }, L110: { skip: true }, L111: { skip: true },
-  L112: { skip: true }, L113: { skip: true }, L114: { skip: true }, L115: { skip: true }, R19: { skip: true },
-  ...Object.fromEntries(Array.from({ length: 22 }, (_, i) => ['R' + (20 + i), { skip: true }])),   // the powderpuff bush, modelled in detail (William 2026-11-14)
+  // the south path: site_rev carries it now (pass 27: 'Paver path gravel' + 'Paver' items), so no skips here
 };
 // Temporary opening edits (export request 29): none left. D37 / S4 heads now come from the export (6'-7", the lanai
 // beam bottom, William's tape 2026-11-14); the old 7'-1" override ran their frames past the wall top into the joists.
@@ -2907,7 +2904,7 @@ const SITE_ADDS = [{ id: 'X-CM1', kind: 'plant', name: 'Crape myrtle', sym: 'cra
 // The south / east path (William 2026-11-14, from his sketch): 2' x 2' square pavers, each in a 4" gravel margin, one
 // line from the quiet patio east along the house, through the south gate, along the wing's south side and up its east
 // side to the drive (the short leg into the south parking stall's corner went 2026-11-17). Centrelines in plan feet.
-const PAVER_PATH = { size: 2, margin: 4 / 12, legs: [[[34.7, 3.4], [73.6, 3.4], [73.6, 36.14]]] };   // the leg into the south stall's corner is gone: shell there (William 2026-11-17)
+const PAVER_PATH = { size: 2, margin: 4 / 12, legs: [[[34.7, 3.4], [73.6, 3.4], [73.6, 36.14]]], draw: false };   // 2026-11-17: the pavers + gravel live in site_rev (pass 27) and draw as site items; the legs stay only to keep plants and beds clear of the path (match site_rev_pass27.py LEGS)
 // Door 07 (N34) slab (William 2026-11-14): replaces the survey's irregular studio patio: a rectangle square to the door,
 // as wide as the old one (6'-2"), out to the lanai planter wall's west face, top at the studio floor (-7 1/2").
 const STUDIO_SLAB = { wall: 'W44', opening: 'N34', width: 6.2, to: [8.03, 23.54], top: -7.5 / 12 };   // `to`: the lanai planter wall's west face (moved 1' west 2026-11-17)
@@ -3251,7 +3248,7 @@ function buildLandscape(D, add, capped, cut) {
       });
       im.castShadow = false; im.receiveShadow = true; add(im);
     } }
-  { // the paver path: a gravel band under each segment, pavers at 2'-4" o.c., one at each corner
+  if (PAVER_PATH.draw !== false) { // the paver path: a gravel band under each segment, pavers at 2'-4" o.c., one at each corner
     const PP = PAVER_PATH, pitch = PP.size + PP.margin, hw = PP.size / 2 + PP.margin, hp = PP.size / 2;
     const placed = [];
     for (const leg of PP.legs) for (let i = 0; i + 1 < leg.length; i++) {
