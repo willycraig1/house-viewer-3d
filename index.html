@@ -3349,6 +3349,7 @@ function buildLandscape(D, add, capped, cut) {
         box(P, base, base + LS.foliage, surf.planting, H); continue;
       }
       if (it.mat === 'bed' && raised.has(it.id)) { box(P, minG(P) - 0.4, soilTop(it), surf.bed, H); continue; }
+      if (/^lanai planter paver$/i.test(nm)) { box(P, LS.lanaiPlanterTop - 0.45, LS.lanaiPlanterTop - 0.1, surf.concrete); continue; }   // just over the planter's soil (William 2026-11-17)
       if (/^trash bin$/i.test(nm)) {   // 96-gal cart: body to 3'-7", lid on top (William 2026-11-17: bins on their own pad)
         const g0 = gC(clean(P)); box(P, g0, g0 + 3.45, mat(0x3c4a3e)); box(P, g0 + 3.45, g0 + 3.6, mat(0x2e3a30)); continue; }
       if (it.mat === 'concrete' && Math.abs(area(clean(P))) < 12) { box(P, g0 - 0.2, g0 + LS.slab, surf.concrete, H); continue; }   // step stones, bins
