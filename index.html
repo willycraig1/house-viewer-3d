@@ -2254,6 +2254,7 @@ function build() {
         return mat('trim');   // fascia
       }));
       add(ifcMeshes(extras('soffit'), () => mat('trim'), { cut }));   // level soffit panels (hip overhangs at 7'-5", lanai overhang under its joists)
+      add(ifcMeshes(extras('skylight').filter(it => /CURB|FRAME|DOME|CRICKET/.test(it.id)), it => /DOME/.test(it.id) ? glassMat : /CRICKET/.test(it.id) ? roofTop() : mat('trim')));   // Alternate 1: M. Bath shower skylight
     } else {
       for (const h of ROOF.hips) add(hipRoof(h.rect));
       for (const f of ROOF.flats) add(flatRoof(f.poly, !!f.exposed));
